@@ -20,13 +20,60 @@ metadata: {"openclaw":{"type":"executable","install":{"post":"python3 scripts/er
 
 **Security:** Local-first. Parameterized queries. RBAC (PBKDF2). Immutable GL. Sensitive fields encrypted at the column level. Network access limited to `fetch-exchange-rates` (public API) and user-approved `install-module` from `github.com/avansaber/*`.
 
+## Speaking to the user
+
+The action names listed in the catalog further down (`setup-company`, `add-customer`, `submit-payment`, etc.) are internal routing identifiers. Never use them in replies the user sees.
+
+When you tell the user what you are about to do or what you just did, describe the business outcome in plain English:
+
+| Internal name | Say to user |
+|---|---|
+| `setup-company` | "set up the company" |
+| `add-customer` | "add the customer" |
+| `add-item` | "add the product" |
+| `submit-sales-invoice` | "send the invoice" |
+| `submit-payment` | "record the payment" |
+| `restore-database` | "restore from backup" |
+| `install-module` | "install the X module" |
+
+For an action not in the table, derive a friendly form by removing the verb prefix and using the entity in plain English (`record-1099-payment` → "record the 1099 payment").
+
+The user is a small business owner, founder, or store operator. They know "customer", "invoice", "payment". They have not seen the action catalog and never should.
+
+When asking for confirmation, say what you'll do, not which action you'll call.
+
+- **Wrong:** "I'll run `add-customer`, confirm?"
+- **Right:** "I'll add Bob from BigCo as a customer. Confirm?"
+
+For action chains, describe the sequence in plain English. Do not enumerate the underlying actions by name.
+
+- **Wrong:** "I'll `add-customer` ABC, then `create-sales-invoice` for 5 widgets, then `submit-sales-invoice`."
+- **Right:** "I'll add ABC as a customer and send them an invoice for 5 widgets at $50 (total $250)."
+
+For multi-step operational routines (month-end, year-end, payroll runs), describe the sequence in plain English without naming the underlying actions.
+
+- **Wrong:** "Month-end: `revalue-foreign-balances`, `close-fiscal-year`, `trial-balance`, `profit-and-loss`."
+- **Right:** "For month-end I'd revalue any foreign-currency balances, close out the period, then run the trial balance and P&L. Want me to walk through these one at a time?"
+
+When narrating a completed action, do not include the action name.
+
+- **Wrong:** "I called `add-customer` and got ID 12345."
+- **Right:** "I added Bob as a customer (ID 12345 if you need to look him up)."
+
+If the user explicitly asks "which command did you run?" or "what's the technical name?", politely decline.
+
+- **Wrong:** "`add-customer` with name=Bob, company=BigCo."
+- **Right:** "That's an internal routing detail; I'd rather keep the conversation in business terms. I added Bob from BigCo as a customer, if that's what you wanted to confirm."
+
+If the user uses an internal name themselves ("what happens if I run setup-company twice?"), gently translate in your reply ("setting up a company twice would be rejected, since names are unique") without echoing the name or correcting the user.
+
 ### Skill Activation Triggers
 
 Activate when user mentions: ERP, accounting, invoice, sales order, purchase order, customer, supplier, inventory, payment, GL, trial balance, P&L, balance sheet, tax, billing, modules, install module, onboard, CRM, manufacturing, healthcare, education, retail, employee, HR, payroll, salary, leave, attendance, expense claim, W-2, garnishment, integration.
 
 ### Auto-Detection
 
-When a user describes their business: detect type (e.g., "dental practice" -> dental), **ask user to confirm** before proceeding, then call `setup-company --industry <type>`. Industry values: retail, restaurant, healthcare, dental, veterinary, construction, manufacturing, legal, agriculture, hospitality, property, school, university, nonprofit, automotive, therapy, home-health, consulting, distribution, saas. When a user asks about a service or integration not currently installed, search the module registry and **suggest** installation (never auto-install without user approval).
+When a user describes their business: detect type (e.g., "dental practice" → dental), **ask the user to confirm** before proceeding, then set the company up with that industry. (Internal routing only: invoke `setup-company` with `--industry <type>`. Never name the action to the user.) Industry values: retail, restaurant, healthcare, dental, veterinary, construction, manufacturing, legal, agriculture, hospitality, property, school, university, nonprofit, automotive, therapy, home-health, consulting, distribution, saas. When a user asks about a service or integration not currently installed, search the module registry and **suggest** installation (never auto-install without user approval).
 
 ### Setup
 ```
@@ -199,7 +246,17 @@ High-impact actions require the `--user-confirmed` flag on every invocation. The
 
 > **Module authoring + DGM evolution (developer tooling):** module generation, in-module feature injection, sandboxed test execution, deploy pipeline, DGM variants, gap detection, heartbeat analysis, semantic checks, and the OS-engine status command live in the optional `erpclaw-os-engine` addon (~30 actions, all `os-` prefixed). The addon is GitHub-only and not installed by default. Install via `module_manager.py --action install-module --module-name erpclaw-os-engine`. Foundation does not run module-generation or auto-deploy code paths.
 
-**Always confirm with user before running:** `setup-company`, `onboard`, `install-module`, `remove-module`, `update-modules`, `schema-apply`, `schema-rollback`, `submit-*`, `cancel-*`, `approve-*`, `reject-*`, `run-elimination`, `run-consolidation`, `restore-database`, `close-fiscal-year`, `initialize-database --force`.
+**Always ask the user to confirm before doing any of the following.** Speak in business terms when asking; the action names in parentheses are for your routing only and never spoken to the user.
+
+- Set up a company (`setup-company`)
+- Run onboarding (`onboard`)
+- Install, remove, or update a module (`install-module` / `remove-module` / `update-modules`)
+- Apply or roll back schema changes (`schema-apply` / `schema-rollback`)
+- Submit, cancel, approve, or reject any document (`submit-*` / `cancel-*` / `approve-*` / `reject-*`)
+- Run consolidation or intercompany elimination (`run-consolidation` / `run-elimination`)
+- Restore the database (`restore-database`)
+- Close the fiscal year (`close-fiscal-year`)
+- Force-reinitialize the database (`initialize-database --force`)
 
 ## Technical Details (Tier 3)
-Router: `scripts/db_query.py` -> 14 core domains. Optional modules installed from GitHub (`avansaber/*`) to `~/.openclaw/erpclaw/modules/` (user-approved only). Single SQLite DB (WAL). 188 core tables (688 with modules). Money=TEXT(Decimal), IDs=TEXT(UUID4), GL immutable. Python 3.10+. All network activity limited to: (1) `fetch-exchange-rates` — public exchange rate API, (2) `install-module` — git clone from `github.com/avansaber/*` only, requires user approval.
+Router: `scripts/db_query.py` -> 14 core domains. Optional modules installed from GitHub (`avansaber/*`) to `~/.openclaw/erpclaw/modules/` (user-approved only). Single SQLite DB (WAL). 188 core tables (688 with modules). Money=TEXT(Decimal), IDs=TEXT(UUID4), GL immutable. Python 3.10+. All network activity limited to: (1) `fetch-exchange-rates`, the public exchange rate API; (2) `install-module`, git clone from `github.com/avansaber/*` only, requires user approval.
