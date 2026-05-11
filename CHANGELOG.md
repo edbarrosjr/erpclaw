@@ -2,6 +2,21 @@
 
 All notable changes to the ERPClaw foundation skill.
 
+## [4.2.3] — 2026-05-10
+
+Operational follow-up to the v4.2.x publish saga. Three small fixes from `planning/PENDING_WORK_PLAN_2026-05-10.md` Tier 1.
+
+### Changed
+- **Shared skip filters.** Extracted `SKIP_DIRS`, `SKIP_SUFFIXES`, `SKIP_FILE_EXACT` into `source/erpclaw/scripts/erpclaw-setup/lib/erpclaw_lib/skip_filters.py`. Both `release/regen_module_manifests.py` (manifest hashing) and `source/erpclaw/scripts/module_manager.py` (install-time integrity walk) now import from the canonical module. Prevents the v4.2.1-class "extra files" failure where the two walks drifted out of sync.
+
+### Fixed
+- **Registry cache auto-refresh on foundation upgrade.** Previously `~/.openclaw/erpclaw/registry_cache.json` was not invalidated when `clawhub install` upgraded the foundation, so the first `install-module` after an upgrade ran integrity checks against the OLD manifest and surfaced false-positive "N mismatched" warnings. Now `_load_registry()` compares the bundled foundation version against the cached one and treats the cache as stale when the bundled version is newer, forcing a refresh.
+- **Snapshot publish-surface alignment.** `release/scripts/regen_clawhub.py` was carrying test files (`scripts/<sub>/tests/`), `.gitkeep` markers, and `.github/` configs that ClawHub strips at upload time — dead weight in the snapshot (~50% of file count). Fixed the snapshot walk to actively remove these from `clawhub/erpclaw/` so the local snapshot matches what users actually receive. Snapshot file count dropped from 187 to 90.
+
+### Notes
+- No new actions, no schema changes, no behavioural changes for end users; this release is internal hygiene only.
+- Verified end-to-end on the OpenClaw test server via the post-republish smoke plan after publish.
+
 ## [4.2.2] — 2026-05-10
 
 Companion fix to v4.2.1. The v4.2.1 manifest correctly excluded `tests/`, `.github/`, `bin/`, etc. — but `module_manager.py`'s install-time integrity check kept its old skip set, so when `install-module <vertical>` git-cloned a public repo (which ships the full tree including those dirs), the walk treated `tests/` files as "delivered" while the manifest didn't list them. Result: every `install-module` after a v4.2.1 install failed with "0 mismatched, 0 missing, N extra files".

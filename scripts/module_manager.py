@@ -151,6 +151,65 @@ def _fetch_with_retry(url, *, timeout=10, retries=1, retry_delay=5.0):
     raise last_err
 
 
+def _bundled_foundation_version():
+    """Return the foundation version recorded in the bundled (just-installed)
+    registry, or None if unavailable. Used to detect a fresh foundation upgrade
+    so we can invalidate the data-dir cache that holds the OLD foundation's
+    manifest (T1.2 in PENDING_WORK_PLAN_2026-05-10.md).
+    """
+    bundled = os.path.join(SCRIPT_DIR, "module_registry.json")
+    try:
+        with open(bundled, "rb") as f:
+            data = json.loads(f.read())
+        modules = data.get("modules") or {}
+        if isinstance(modules, dict):
+            return (modules.get("erpclaw") or {}).get("version")
+        for m in modules:
+            if m.get("name") == "erpclaw":
+                return m.get("version")
+    except (OSError, json.JSONDecodeError, AttributeError):
+        return None
+    return None
+
+
+def _cached_foundation_version():
+    """Return the foundation version recorded in the cached registry, or None."""
+    try:
+        with open(LOCAL_CACHE_PATH, "rb") as f:
+            data = json.loads(f.read())
+        modules = data.get("modules") or {}
+        if isinstance(modules, dict):
+            return (modules.get("erpclaw") or {}).get("version")
+        for m in modules:
+            if m.get("name") == "erpclaw":
+                return m.get("version")
+    except (OSError, json.JSONDecodeError, AttributeError):
+        return None
+    return None
+
+
+def _cache_is_behind_bundled():
+    """True if the data-dir cache holds an older foundation version than the
+    just-installed bundled registry. When True, the cache should be invalidated
+    before any module install attempt — otherwise the install-time integrity
+    check verifies foundation files against the OLD manifest and reports
+    false-positive mismatches for any file that changed between versions.
+    """
+    if not os.path.isfile(LOCAL_CACHE_PATH):
+        return False
+    bundled = _bundled_foundation_version()
+    cached = _cached_foundation_version()
+    if not bundled or not cached:
+        return False
+    # Simple semver compare via tuple of ints; works for our X.Y.Z scheme.
+    def _to_tuple(v):
+        try:
+            return tuple(int(p) for p in str(v).split("."))
+        except ValueError:
+            return (0,)
+    return _to_tuple(bundled) > _to_tuple(cached)
+
+
 def _load_registry(force_refresh=False):
     """Load module registry. Lenient mode: signature is verified and reported
     via `_signed_by`/`_signature_warning`, but the function does not refuse on
@@ -160,9 +219,18 @@ def _load_registry(force_refresh=False):
     which refuses unsigned/tampered/downgraded registries.
 
     Resolution order: fresh cache → remote → bundled → stale cache.
+
+    Auto-invalidation: when the bundled foundation version is newer than the
+    cached one (i.e., the foundation skill was just upgraded via
+    `clawhub install`), the cache is treated as stale regardless of mtime —
+    its hashes describe the OLD foundation and using them would produce
+    false-positive integrity warnings.
     """
     bundled_path = os.path.join(SCRIPT_DIR, "module_registry.json")
     bundled_sig_path = bundled_path + ".sig"
+
+    if _cache_is_behind_bundled():
+        force_refresh = True
 
     # 1. Check local cache
     if not force_refresh and os.path.isfile(LOCAL_CACHE_PATH):
@@ -792,13 +860,12 @@ def _install_module_inner(args, conn, modules_by_name, depth=0):
     manifest = module_info.get("files_sha256")
     if manifest:
         # Walk the fetched tree to discover what was delivered, applying the
-        # same skip filters used at manifest generation time. This MUST stay
-        # in lockstep with `release/regen_module_manifests.py`'s walk filters
-        # — drift between the two means hash-clean modules report as
-        # "extra files" or "missing" purely from filter divergence.
-        SKIP_DIRS = {".git", "__pycache__", ".pytest_cache", "node_modules", "dist", "build", "tests", ".github", "bin"}
-        SKIP_SUFFIXES = (".pyc", ".pyo", ".bak", ".tmp", ".DS_Store", ".sig")
-        SKIP_FILE_EXACT = {".DS_Store", ".gitkeep", ".clawhubignore"}
+        # same skip filters used at manifest generation time. Canonical
+        # source: `erpclaw_lib.skip_filters` (shared with
+        # `release/regen_module_manifests.py` so the two walks can't drift).
+        from erpclaw_lib.skip_filters import (
+            SKIP_DIRS, SKIP_SUFFIXES, SKIP_FILE_EXACT,
+        )
         # Files excluded from manifest by design (self-referential)
         SKIP_RELPATHS = (
             {"scripts/module_registry.json", "scripts/module_registry.json.sig",
