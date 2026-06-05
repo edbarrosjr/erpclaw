@@ -2,6 +2,18 @@
 
 All notable changes to the ERPClaw foundation skill.
 
+## [4.4.0] — 2026-06-05
+
+### Added
+- `--email` / `--phone` on `add-customer` / `update-customer` / `add-supplier` / `update-supplier`; returned by the corresponding `get-*`. (FINDING-003)
+
+### Schema
+- `customer.email TEXT`, `customer.phone TEXT`, `supplier.email TEXT`, `supplier.phone TEXT` (nullable); foundation migration `016` (dialect-aware SQLite + PostgreSQL). `import-customers` / `import-suppliers` INSERTs now resolve against real columns. (FINDING-003, ADR-0012)
+
+### Fixed
+- AR/AP payment application now clears the invoice/bill: the document's `outstanding_amount` / `status` is synced and a per-allocation payment-ledger entry with `against_voucher` is posted, so a recorded payment marks the invoice/bill paid (previously it stayed unpaid). (FINDING-005)
+- Gateway `voucher_type` labels are canonicalized system-wide (e.g. "Sales Invoice" -> `sales_invoice`) so the NL gateway and downstream GL/inventory/tax/reports/payments consumers agree on the voucher vocabulary. (FINDING-006)
+
 ## [4.3.1] — 2026-05-11
 
 ### Fixed
