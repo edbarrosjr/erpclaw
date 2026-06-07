@@ -1,6 +1,6 @@
 ---
 name: erpclaw
-version: 4.4.0
+version: 4.5.0
 description: >
   AI-native ERP system. Full accounting, invoicing, inventory, purchasing,
   tax, billing, HR, payroll, advanced accounting (ASC 606/842, intercompany, consolidation),
@@ -25,6 +25,7 @@ metadata: {"openclaw":{"type":"executable","install":{"post":"python3 scripts/er
 The ERPClaw database is the single source of truth for every business entity — companies, customers, suppliers, items, invoices, bills, payments, and the general ledger. Before answering what exists or acting on an entity, look it up in the ERP and ground your reply in that result:
 
 - "Which companies/customers/items do we have?" → query it (`list-companies`, `list-customers`, `list-items`). Never answer from memory, earlier conversations, workspace files, or any other context.
+- When a user names a product loosely or in plural ("20 Brake Pad Sets"), call `resolve-item --name "<their words>"` first; use the single match, or ask the user to choose when `multiple_matches` is true, before invoicing/ordering.
 - Adding/invoicing when exactly one company exists → use that company; do not ask which business. When several exist, offer only the ones from `list-companies` and ask which.
 - Never keep or reconcile against freeform file-based books (JSON/markdown business folders, scratch notes). They are not the ledger and may be stale. The ERP database is the only authoritative record.
 
@@ -55,15 +56,10 @@ When asking for confirmation, say what you'll do, not which action you'll call.
 - **Wrong:** "I'll run `add-customer`, confirm?"
 - **Right:** "I'll add Bob from BigCo as a customer. Confirm?"
 
-For action chains, describe the sequence in plain English. Do not enumerate the underlying actions by name.
+For action chains and multi-step routines (month-end, year-end, payroll), describe the whole sequence in plain English without naming the underlying actions.
 
-- **Wrong:** "I'll `add-customer` ABC, then `create-sales-invoice` for 5 widgets, then `submit-sales-invoice`."
-- **Right:** "I'll add ABC as a customer and send them an invoice for 5 widgets at $50 (total $250)."
-
-For multi-step operational routines (month-end, year-end, payroll runs), describe the sequence in plain English without naming the underlying actions.
-
-- **Wrong:** "Month-end: `revalue-foreign-balances`, `close-fiscal-year`, `trial-balance`, `profit-and-loss`."
-- **Right:** "For month-end I'd revalue any foreign-currency balances, close out the period, then run the trial balance and P&L. Want me to walk through these one at a time?"
+- **Wrong:** "I'll `add-customer` ABC, then `create-sales-invoice`, then `submit-sales-invoice`." / "Month-end: `revalue-foreign-balances`, `close-fiscal-year`, `trial-balance`."
+- **Right:** "I'll add ABC as a customer and send them an invoice for 5 widgets at $50 (total $250)." / "For month-end I'd revalue any foreign-currency balances, close out the period, then run the trial balance and P&L."
 
 When narrating a completed action, do not include the action name.
 
@@ -76,6 +72,12 @@ If the user explicitly asks "which command did you run?" or "what's the technica
 - **Right:** "That's an internal routing detail; I'd rather keep the conversation in business terms. I added Bob from BigCo as a customer, if that's what you wanted to confirm."
 
 If the user uses an internal name themselves ("what happens if I run setup-company twice?"), gently translate in your reply ("setting up a company twice would be rejected, since names are unique") without echoing the name or correcting the user.
+
+### Accounting and ledger internals
+The same rule applies to the bookkeeping behind an action: erpclaw returns the technical record (double-entry GL legs, ledger fields, status flags, internal IDs), but you confirm the business outcome, translate every internal label, and keep the mechanics out of the reply. Never describe the double-entry posting, the debit/credit legs, the account names, "no stock movement", or "stock ledger entry". Say what changed in business terms: "I recorded the bill, it's in your books and shows as owed to Gotham Steel."
+- Translate internal labels, don't echo them: draft means "saved but not sent yet"; submitted or gl posted means "recorded in your books"; outstanding means "still owed"; valuation rate means "cost"; posting date means "date"; naming series and the gl or sle entry counts should be omitted entirely.
+- Show an internal ID only as a trailing reference, never as the headline.
+  - **Wrong:** "Posted. status: submitted. Posting date: 2026-06-07. gl entries created: 2 (debit Inventory, credit Accounts Payable). 3f2a-..." **Right:** "Done, I recorded that bill in your books; you still owe Gotham Steel $600 (reference 3f2a if you need to look it up)."
 
 ### Skill Activation Triggers
 
@@ -187,14 +189,16 @@ High-impact actions require the `--user-confirmed` flag on every invocation. The
 | `create-purchase-invoice` / `update-purchase-invoice` / `get-purchase-invoice` / `list-purchase-invoices` / `submit-purchase-invoice` / `cancel-purchase-invoice` | Purchase invoices |
 | `create-debit-note` / `add-landed-cost-voucher` / `update-receipt-tolerance` / `update-three-way-match-policy` | Adjustments |
 
-### Inventory (42)
+**Receiving purchased stock — flow:** to bring purchased goods into inventory, receive them against their source document so valuation carries automatically. Canonical flow: `submit-purchase-order` (confirms the order + rate) → `create-purchase-receipt --purchase-order-id <PO>` then `submit-purchase-receipt` (this values the stock at the PO rate and posts inventory GL) → `create-purchase-invoice` + `submit-purchase-invoice` for the bill (leave stock update off — the receipt already moved it) → pay. Do NOT use a standalone `add-stock-entry --type material_receipt` to receive purchased goods unless you restate the unit cost; a rate-less receipt cannot be valued and will be refused.
+
+### Inventory (43)
 | Action | Description |
 |--------|-------------|
-| `add-item` / `update-item` / `get-item` / `list-items` / `import-items` / `add-item-group` / `list-item-groups` | Item master |
+| `add-item` / `update-item` / `get-item` / `list-items` / `resolve-item` / `import-items` / `add-item-group` / `list-item-groups` | Item master (`resolve-item`: resolve a loose/plural user phrase like "20 Brake Pad Sets" to the stored item) |
 | `add-item-attribute` / `create-item-variant` / `generate-item-variants` / `list-item-variants` | Item variants |
 | `add-item-supplier` / `list-item-suppliers` / `set-item-purchase-uom` | Item suppliers |
 | `add-warehouse` / `update-warehouse` / `list-warehouses` | Warehouses |
-| `add-stock-entry` / `get-stock-entry` / `list-stock-entries` / `submit-stock-entry` / `cancel-stock-entry` | Stock entries |
+| `add-stock-entry` / `get-stock-entry` / `list-stock-entries` / `submit-stock-entry` / `cancel-stock-entry` | Stock entries (a `material_receipt` requires a stated rate or the item's standard cost — it is for non-purchase adjustments, not for receiving against a bill/PO; to receive purchased goods, see the Buying procure-to-pay flow) |
 | `create-stock-ledger-entries` / `reverse-stock-ledger-entries` | Stock ledger |
 | `get-stock-balance` / `stock-balance` / `stock-balance-report` / `stock-ledger-report` / `get-projected-qty` | Stock reports |
 | `add-batch` / `list-batches` / `add-serial-number` / `list-serial-numbers` | Batch & serial |

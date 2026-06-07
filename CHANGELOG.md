@@ -2,6 +2,16 @@
 
 All notable changes to the ERPClaw foundation skill.
 
+## [4.5.0] — 2026-06-05
+
+### Added
+- `resolve-item` (erpclaw-inventory): cascade item resolver that maps a loose/plural user phrase ("20 Brake Pad Sets") to the stored item via a deterministic 4-tier cascade (exact → singularized → substring → token-AND, stop at first non-empty, shortest-name-first). Read-only, cross-DB (dialect-neutral `LOWER(...) LIKE`, never `.ilike()`), stdlib-only singularizer. Returns `single_match` / `multiple_matches` / `matched:false` so callers can branch deterministically. Fixes FINDING-008. (Inventory action count 42 → 43.)
+
+### Fixed
+- Gateway replies no longer leak accounting internals to business users: SKILL.md `## Speaking to the user` now instructs the agent to translate or omit double-entry GL narration, account names, internal status/field labels (status, posting date, outstanding, valuation rate, naming series, gl/sle counts) and raw UUIDs, surfacing the business outcome instead. Guidance-only — no response-shape or schema change. (FINDING-004)
+- Stock receipts now always post the perpetual-inventory GL leg (DR Stock-in-Hand / CR Stock Received Not Billed); a missing Stock-in-Hand or Stock Received Not Billed account now fails loudly with an actionable message instead of silently skipping the GL while still moving the subledger. The `create_perpetual_inventory_gl` lib helper raises a structured error (caught at all 7 caller sites across inventory/buying/selling/manufacturing, surfaced as a clean JSON error with full transaction rollback — no SLE-without-GL). `tutorial` (demo company) now seeds a Stock Adjustment account so demo-company reconciliations post correct GL. (FINDING-009)
+- Purchased stock is now valued from its source document end to end: receiving against a purchase order (GRN) or recording a bill with stock update carries the unit cost into the stock ledger and posts the inventory GL. A standalone, rate-less external stock receipt with no item standard cost now fails loudly with an actionable message instead of silently booking inventory at $0 (internal transfers and manufacturing legs are unaffected — they keep inheriting existing valuation). SKILL.md now guides the procure-to-pay receipt flow. (FINDING-010, ADR-0014)
+
 ## [4.4.0] — 2026-06-05
 
 ### Added

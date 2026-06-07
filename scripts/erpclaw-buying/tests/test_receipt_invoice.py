@@ -115,6 +115,53 @@ class TestSubmitPurchaseReceipt:
         assert row["status"] == "submitted"
 
 
+class TestGRNValuation:
+    """FINDING-010 / ADR-0014: receiving against a PO (GRN) values the stock from
+    the PO line rate and posts the perpetual inventory GL — the Path B receipt."""
+
+    def test_grn_values_stock_and_posts_inventory_gl(self, conn, env):
+        # PO: 100 x Raw Metal @ $6 = $600 (mirrors mfg-j02-procure-to-pay)
+        po_id = _create_confirmed_po(
+            conn, env, items_str=_items(env, ("item1", "100", "6.00")))
+        pr = call_action(mod.create_purchase_receipt, conn, ns(
+            purchase_order_id=po_id, company_id=env["company_id"],
+            posting_date="2026-06-20", items=None,
+            purchase_receipt_id=None,
+        ))
+        assert is_ok(pr)
+        result = call_action(mod.submit_purchase_receipt, conn, ns(
+            purchase_receipt_id=pr["purchase_receipt_id"],
+        ))
+        assert is_ok(result), f"GRN submit failed: {result}"
+
+        # Exactly ONE SLE for the item/warehouse, valued from the PO rate.
+        sle_rows = conn.execute(
+            "SELECT actual_qty, valuation_rate, stock_value FROM stock_ledger_entry "
+            "WHERE voucher_type='purchase_receipt' AND voucher_id=? AND item_id=? "
+            "AND warehouse_id=? AND is_cancelled=0",
+            (pr["purchase_receipt_id"], env["item1"], env["warehouse"]),
+        ).fetchall()
+        assert len(sle_rows) == 1, f"expected exactly one SLE, got {len(sle_rows)}"
+        sle = sle_rows[0]
+        assert Decimal(sle["actual_qty"]) == Decimal("100")
+        assert Decimal(sle["valuation_rate"]) == Decimal("6.00")
+        assert Decimal(sle["stock_value"]) == Decimal("600.00")
+
+        # Inventory GL: exactly 2 legs, DR stock 600 / CR SRNB 600, balanced.
+        gl_rows = conn.execute(
+            "SELECT account_id, debit, credit FROM gl_entry "
+            "WHERE voucher_type='purchase_receipt' AND voucher_id=? AND is_cancelled=0",
+            (pr["purchase_receipt_id"],),
+        ).fetchall()
+        assert len(gl_rows) == 2, f"expected 2 GL legs, got {len(gl_rows)}"
+        by_acct = {r["account_id"]: r for r in gl_rows}
+        assert Decimal(by_acct[env["stock_acct"]]["debit"]) == Decimal("600.00")
+        assert Decimal(by_acct[env["srnb"]]["credit"]) == Decimal("600.00")
+        total_dr = sum(Decimal(r["debit"]) for r in gl_rows)
+        total_cr = sum(Decimal(r["credit"]) for r in gl_rows)
+        assert total_dr == total_cr == Decimal("600.00")
+
+
 class TestCancelPurchaseReceipt:
     def test_cancel(self, conn, env):
         po_id = _create_confirmed_po(conn, env)

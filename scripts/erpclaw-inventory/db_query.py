@@ -369,6 +369,123 @@ def list_items(conn, args):
 
 
 # ---------------------------------------------------------------------------
+# resolve-item — deterministic cascade resolver (FINDING-008)
+# ---------------------------------------------------------------------------
+
+def _singularize(phrase):
+    """Conservative, stdlib-only English singularizer (no nltk/inflect).
+
+    Operates on the last whitespace token of the phrase only (so "Brake Pad
+    Sets" -> "Brake Pad Set", not mangled mid-phrase). Intentionally lossy:
+    over-singularizing causes false matches, so the rules stay conservative
+    and tiers 3-4 (substring / token-AND) are the safety net for the rest.
+    """
+    parts = phrase.split()
+    if not parts:
+        return phrase
+    w = parts[-1]
+    if len(w) > 3 and w.endswith("ies"):
+        w = w[:-3] + "y"          # categories -> category
+    elif len(w) > 2 and w.endswith("es") and w[-3:-2] in ("s", "x", "z", "h"):
+        w = w[:-2]                # boxes -> box, batches -> batch
+    elif len(w) > 1 and w.endswith("s") and not w.endswith("ss"):
+        w = w[:-1]                # sets -> set; "glass"/"chassis" kept via ss guard
+    parts[-1] = w
+    return " ".join(parts)
+
+
+_RESOLVE_LIMIT = 10
+
+
+def _resolve_select(i):
+    """Common SELECT/order/limit skeleton for a resolver tier (shortest name first)."""
+    return (Q.from_(i)
+            .select(i.id.as_("item_id"), i.item_code, i.item_name,
+                    i.item_type, i.stock_uom, i.standard_rate, i.status)
+            .orderby(fn.Length(i.item_name)).orderby(i.item_name)
+            .limit(P()))
+
+
+def resolve_item(conn, args):
+    """Resolve a loose/plural user phrase to ranked item candidates.
+
+    READ-ONLY. Deterministic 4-tier cascade; stops at the first tier that
+    returns >=1 row. All comparison is dialect-neutral via fn.Lower(field)
+    against a Python-.lower()-ed term (never .ilike()). See FINDING-008.
+    """
+    name = getattr(args, "name", None)
+    if not name or not name.strip():
+        err("--name is required")
+
+    term = name.strip()
+    low = term.lower()
+
+    i = Table("item").as_("i")
+
+    def run(query, params):
+        rows = conn.execute(query.get_sql(), params).fetchall()
+        return [row_to_dict(r) for r in rows]
+
+    candidates = []
+    match_type = None
+
+    # Tier 1 — exact (case-insensitive) on item_name OR item_code.
+    q1 = _resolve_select(i).where(
+        (fn.Lower(i.item_name) == P()) | (fn.Lower(i.item_code) == P()))
+    candidates = run(q1, [low, low, _RESOLVE_LIMIT])
+    if candidates:
+        match_type = "exact"
+
+    # Tier 2 — singularized exact, then singularized LIKE (only if plural).
+    if not candidates:
+        sing = _singularize(low)
+        if sing != low:
+            q2a = _resolve_select(i).where(
+                (fn.Lower(i.item_name) == P()) | (fn.Lower(i.item_code) == P()))
+            candidates = run(q2a, [sing, sing, _RESOLVE_LIMIT])
+            if not candidates:
+                pat = f"%{sing}%"
+                q2b = _resolve_select(i).where(
+                    fn.Lower(i.item_name).like(P()) | fn.Lower(i.item_code).like(P()))
+                candidates = run(q2b, [pat, pat, _RESOLVE_LIMIT])
+            if candidates:
+                match_type = "singular"
+
+    # Tier 3 — substring LIKE on the raw term (item_name OR item_code).
+    if not candidates:
+        pat = f"%{low}%"
+        q3 = _resolve_select(i).where(
+            fn.Lower(i.item_name).like(P()) | fn.Lower(i.item_code).like(P()))
+        candidates = run(q3, [pat, pat, _RESOLVE_LIMIT])
+        if candidates:
+            match_type = "substring"
+
+    # Tier 4 — token-AND (every token contained), only if 1-3 empty.
+    if not candidates:
+        tokens = [_singularize(tok) for tok in low.split() if len(tok) >= 2]
+        if tokens:
+            q4 = _resolve_select(i)
+            params = []
+            for tok in tokens:
+                q4 = q4.where(fn.Lower(i.item_name).like(P()))
+                params.append(f"%{tok}%")
+            params.append(_RESOLVE_LIMIT)
+            candidates = run(q4, params)
+            if candidates:
+                match_type = "tokens"
+
+    matched = len(candidates) >= 1
+    ok({
+        "query": term,
+        "matched": matched,
+        "single_match": len(candidates) == 1,
+        "multiple_matches": len(candidates) > 1,
+        "match_type": match_type if matched else None,
+        "candidates": candidates,
+    })
+
+
+# ---------------------------------------------------------------------------
 # 5. add-item-group
 # ---------------------------------------------------------------------------
 
@@ -903,6 +1020,11 @@ def submit_stock_entry(conn, args):
                 "batch_id": item.get("batch_id"),
                 "serial_number": item.get("serial_numbers"),
                 "fiscal_year": fiscal_year,
+                # FINDING-010 / ADR-0014: a standalone material_receipt is a true
+                # external receipt — it must carry a stated rate (or the item's
+                # standard_rate), never silently book inventory at $0. Internal
+                # moves (transfer-in, manufacture FG leg) below do NOT opt in.
+                "require_rate": True,
             })
         elif entry_type == "material_issue":
             # Negative qty at from_warehouse
@@ -981,14 +1103,18 @@ def submit_stock_entry(conn, args):
     sle_dicts = [row_to_dict(r) for r in sle_rows]
 
     # Create perpetual inventory GL entries
-    gl_entries = create_perpetual_inventory_gl(
-        conn, sle_dicts,
-        voucher_type="stock_entry",
-        voucher_id=args.stock_entry_id,
-        posting_date=posting_date,
-        company_id=company_id,
-        cost_center_id=cost_center_id,
-    )
+    try:
+        gl_entries = create_perpetual_inventory_gl(
+            conn, sle_dicts,
+            voucher_type="stock_entry",
+            voucher_id=args.stock_entry_id,
+            posting_date=posting_date,
+            company_id=company_id,
+            cost_center_id=cost_center_id,
+        )
+    except ValueError as e:
+        sys.stderr.write(f"[erpclaw-inventory] {e}\n")
+        err(f"GL posting failed: {e}")
 
     gl_ids = []
     if gl_entries:
@@ -1836,15 +1962,19 @@ def submit_stock_reconciliation(conn, args):
         stock_adj_acct = conn.execute(acct_q.get_sql(), (company_id,)).fetchone()
         expense_account_id = stock_adj_acct["id"] if stock_adj_acct else None
 
-        gl_entries = create_perpetual_inventory_gl(
-            conn, sle_dicts,
-            voucher_type="stock_reconciliation",
-            voucher_id=args.stock_reconciliation_id,
-            posting_date=posting_date,
-            company_id=company_id,
-            expense_account_id=expense_account_id,
-            cost_center_id=cost_center_id,
-        )
+        try:
+            gl_entries = create_perpetual_inventory_gl(
+                conn, sle_dicts,
+                voucher_type="stock_reconciliation",
+                voucher_id=args.stock_reconciliation_id,
+                posting_date=posting_date,
+                company_id=company_id,
+                expense_account_id=expense_account_id,
+                cost_center_id=cost_center_id,
+            )
+        except ValueError as e:
+            sys.stderr.write(f"[erpclaw-inventory] {e}\n")
+            err(f"GL posting failed: {e}")
 
         if gl_entries:
             for gle in gl_entries:
@@ -2883,6 +3013,7 @@ ACTIONS = {
     "update-item": update_item,
     "get-item": get_item,
     "list-items": list_items,
+    "resolve-item": resolve_item,
     "add-item-group": add_item_group,
     "list-item-groups": list_item_groups,
     "add-warehouse": add_warehouse,

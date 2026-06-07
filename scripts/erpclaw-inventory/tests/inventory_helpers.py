@@ -206,6 +206,8 @@ def build_inventory_env(conn) -> dict:
     stock_acct = seed_account(conn, cid, "Stock In Hand", "asset", "stock", "1200")
     stock_adj = seed_account(conn, cid, "Stock Adjustment", "expense", "stock_adjustment", "5200")
     expense = seed_account(conn, cid, "Expenses", "expense", "expense", "5000")
+    srnb = seed_account(conn, cid, "Stock Received Not Billed", "liability",
+                        "stock_received_not_billed", "2150")
 
     wh = seed_warehouse(conn, cid, "Main Warehouse", stock_acct)
     wh2 = seed_warehouse(conn, cid, "Secondary Warehouse", stock_acct)
@@ -230,7 +232,7 @@ def build_inventory_env(conn) -> dict:
     return {
         "company_id": cid, "fiscal_year_id": fyid, "cc": ccid,
         "cash": cash, "stock_acct": stock_acct, "stock_adj": stock_adj,
-        "expense": expense,
+        "expense": expense, "srnb": srnb,
         "warehouse": wh, "warehouse2": wh2,
         "item1": item1, "item2": item2,
     }

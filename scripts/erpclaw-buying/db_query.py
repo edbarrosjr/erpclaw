@@ -1546,6 +1546,9 @@ def submit_purchase_receipt(conn, args):
             "batch_id": item.get("batch_id"),
             "serial_number": item.get("serial_numbers"),
             "fiscal_year": fiscal_year,
+            # FINDING-010 / ADR-0014: GRN is a true external receipt — it must carry
+            # a positive cost (the PO line rate), never silently book inventory at $0.
+            "require_rate": True,
         })
 
     # Insert SLE
@@ -1570,14 +1573,18 @@ def submit_purchase_receipt(conn, args):
     sle_rows = conn.execute(q.get_sql(), (args.purchase_receipt_id,)).fetchall()
     sle_dicts = [row_to_dict(r) for r in sle_rows]
 
-    gl_entries = create_perpetual_inventory_gl(
-        conn, sle_dicts,
-        voucher_type="purchase_receipt",
-        voucher_id=args.purchase_receipt_id,
-        posting_date=posting_date,
-        company_id=company_id,
-        cost_center_id=cost_center_id,
-    )
+    try:
+        gl_entries = create_perpetual_inventory_gl(
+            conn, sle_dicts,
+            voucher_type="purchase_receipt",
+            voucher_id=args.purchase_receipt_id,
+            posting_date=posting_date,
+            company_id=company_id,
+            cost_center_id=cost_center_id,
+        )
+    except ValueError as e:
+        sys.stderr.write(f"[erpclaw-buying] {e}\n")
+        err(f"GL posting failed: {e}")
 
     gl_ids = []
     if gl_entries:
@@ -2486,6 +2493,9 @@ def submit_purchase_invoice(conn, args):
                 "actual_qty": str(round_currency(qty)),
                 "incoming_rate": str(round_currency(rate)),
                 "fiscal_year": fiscal_year,
+                # FINDING-010 / ADR-0014: bill-posts-stock is a true external receipt —
+                # it must carry the bill line rate, never silently book inventory at $0.
+                "require_rate": True,
             })
 
         if sle_entries:
@@ -2510,14 +2520,18 @@ def submit_purchase_invoice(conn, args):
             sle_rows = conn.execute(q.get_sql(),
                 (voucher_type, args.purchase_invoice_id)).fetchall()
             sle_dicts = [row_to_dict(r) for r in sle_rows]
-            inv_gl = create_perpetual_inventory_gl(
-                conn, sle_dicts,
-                voucher_type=voucher_type,
-                voucher_id=args.purchase_invoice_id,
-                posting_date=posting_date,
-                company_id=company_id,
-                cost_center_id=cost_center_id,
-            )
+            try:
+                inv_gl = create_perpetual_inventory_gl(
+                    conn, sle_dicts,
+                    voucher_type=voucher_type,
+                    voucher_id=args.purchase_invoice_id,
+                    posting_date=posting_date,
+                    company_id=company_id,
+                    cost_center_id=cost_center_id,
+                )
+            except ValueError as e:
+                sys.stderr.write(f"[erpclaw-buying] {e}\n")
+                err(f"GL posting failed: {e}")
             if inv_gl:
                 for gle in inv_gl:
                     gle["fiscal_year"] = fiscal_year

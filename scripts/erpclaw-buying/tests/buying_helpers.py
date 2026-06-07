@@ -202,6 +202,8 @@ def build_buying_env(conn) -> dict:
     expense = seed_account(conn, cid, "Purchases", "expense", "expense", "5000")
     cogs = seed_account(conn, cid, "COGS", "expense", "cost_of_goods_sold", "5100")
     stock_acct = seed_account(conn, cid, "Stock In Hand", "asset", "stock", "1200")
+    srnb = seed_account(conn, cid, "Stock Received Not Billed", "liability",
+                        "stock_received_not_billed", "2150")
 
     wh = seed_warehouse(conn, cid, "Main Warehouse", stock_acct)
 
@@ -224,7 +226,7 @@ def build_buying_env(conn) -> dict:
     return {
         "company_id": cid, "fiscal_year_id": fyid, "cc": ccid,
         "cash": cash, "ap": ap, "expense": expense,
-        "cogs": cogs, "stock_acct": stock_acct, "warehouse": wh,
+        "cogs": cogs, "stock_acct": stock_acct, "srnb": srnb, "warehouse": wh,
         "item1": item1, "item2": item2,
         "supplier": supplier,
     }

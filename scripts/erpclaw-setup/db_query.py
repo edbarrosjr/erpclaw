@@ -1285,6 +1285,7 @@ def tutorial(conn, args):
         ("Expenses", "5000", None, "expense", 1),
         ("Cost of Goods Sold", "5100", "cost_of_goods_sold", "expense", 0),
         ("Operating Expenses", "5200", "expense", "expense", 0),
+        ("Stock Adjustment", "5210", "stock_adjustment", "expense", 0),
         ("Salary Expense", "5300", "expense", "expense", 0),
         ("Equity", "3000", None, "equity", 1),
         ("Retained Earnings", "3100", "equity", "equity", 0),

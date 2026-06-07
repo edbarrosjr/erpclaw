@@ -431,6 +431,12 @@ def insert_sle_entries(
         warehouse_id = entry["warehouse_id"]
         actual_qty = to_decimal(entry.get("actual_qty", "0"))
         incoming_rate = to_decimal(entry.get("incoming_rate", "0"))
+        # FINDING-010 / ADR-0014: true external receipts (purchase invoice stock
+        # leg, GRN, standalone material_receipt) opt in via require_rate=True so a
+        # rate-less, no-standard_rate incoming movement refuses loudly instead of
+        # silently booking $0. Internal moves (transfer-in, manufacture FG leg,
+        # issue, reconciliation) leave it False and keep inheriting valuation.
+        require_rate = bool(entry.get("require_rate", False))
 
         # Determine valuation method for this item
         valuation_method = _get_item_valuation_method(conn, item_id)
@@ -447,6 +453,7 @@ def insert_sle_entries(
                 actual_qty, incoming_rate,
                 current_qty, current_value,
                 voucher_type, voucher_id,
+                require_rate,
             )
         else:
             # Moving average (original logic)
@@ -454,6 +461,7 @@ def insert_sle_entries(
                 conn, item_id,
                 actual_qty, incoming_rate,
                 current_qty, current_value,
+                require_rate,
             )
 
         new_stock_value = round_currency(new_value)
@@ -500,6 +508,7 @@ def _compute_moving_avg_sle(
     incoming_rate: Decimal,
     current_qty: Decimal,
     current_value: Decimal,
+    require_rate: bool = False,
 ) -> tuple[Decimal, Decimal, Decimal, Decimal]:
     """Compute valuation using moving average method.
 
@@ -512,6 +521,16 @@ def _compute_moving_avg_sle(
                 "SELECT standard_rate FROM item WHERE id = ?", (item_id,)
             ).fetchone()
             incoming_rate = to_decimal(item_row["standard_rate"]) if item_row else Decimal("0")
+        # FINDING-010 / ADR-0014: a true external receipt (require_rate=True) must
+        # carry a positive cost; refuse rather than silently book inventory at $0.
+        if require_rate and incoming_rate <= 0:
+            raise ValueError(
+                f"Cannot value incoming stock for item {item_id}: no rate was provided "
+                f"and the item has no standard_rate to fall back on. A purchase receipt "
+                f"must carry a positive cost. Receive the stock against its purchase order "
+                f"or bill (which carries the rate), or set the item's standard cost first "
+                f"(add-item / update-item --standard-rate), or restate the rate on the receipt."
+            )
         incoming_value = round_currency(actual_qty * incoming_rate)
         new_qty = current_qty + actual_qty
         new_value = current_value + incoming_value
@@ -544,6 +563,7 @@ def _compute_fifo_sle(
     current_value: Decimal,
     voucher_type: str,
     voucher_id: str,
+    require_rate: bool = False,
 ) -> tuple[Decimal, Decimal, Decimal, Decimal]:
     """Compute valuation using FIFO method.
 
@@ -564,6 +584,17 @@ def _compute_fifo_sle(
                 "SELECT standard_rate FROM item WHERE id = ?", (item_id,)
             ).fetchone()
             incoming_rate = to_decimal(item_row["standard_rate"]) if item_row else Decimal("0")
+
+        # FINDING-010 / ADR-0014: a true external receipt (require_rate=True) must
+        # carry a positive cost; refuse before any zero-cost FIFO layer is created.
+        if require_rate and incoming_rate <= 0:
+            raise ValueError(
+                f"Cannot value incoming stock for item {item_id}: no rate was provided "
+                f"and the item has no standard_rate to fall back on. A purchase receipt "
+                f"must carry a positive cost. Receive the stock against its purchase order "
+                f"or bill (which carries the rate), or set the item's standard cost first "
+                f"(add-item / update-item --standard-rate), or restate the rate on the receipt."
+            )
 
         # Create a new FIFO layer for this incoming stock
         _insert_fifo_layer(
@@ -930,7 +961,13 @@ def create_perpetual_inventory_gl(
             warehouse_account_id = stock_acct["id"] if stock_acct else None
 
         if not warehouse_account_id:
-            continue  # Cannot create GL without a stock account
+            raise ValueError(
+                f"No Stock-in-Hand account for company {company_id} "
+                f"(warehouse {warehouse_id} is not linked to an account and no "
+                f"account_type='stock' account exists). Run setup-company, link the "
+                f"warehouse to your Inventory account, or add-account "
+                f"--account-type stock --root-type asset."
+            )
 
         # Determine contra account
         contra_account_id = expense_account_id
@@ -951,7 +988,15 @@ def create_perpetual_inventory_gl(
             contra_account_id = contra["id"] if contra else None
 
         if not contra_account_id:
-            continue  # Cannot create GL without contra account
+            is_receipt = to_decimal(entry.get("actual_qty", "0")) > 0
+            needed = "stock_received_not_billed" if is_receipt else "cost_of_goods_sold"
+            label = "Stock Received Not Billed" if is_receipt else "Cost of Goods Sold"
+            raise ValueError(
+                f"No '{label}' account for company {company_id}. A stock "
+                f"{'receipt' if is_receipt else 'issue'} cannot post balanced GL without it. "
+                f"Run setup-company or add-account --account-type {needed} "
+                f"--root-type {'liability' if is_receipt else 'expense'}."
+            )
 
         abs_value = abs(value_diff)
 

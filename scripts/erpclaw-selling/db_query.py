@@ -1646,15 +1646,19 @@ def submit_delivery_note(conn, args):
     sle_rows = conn.execute(sleq.get_sql(), (args.delivery_note_id,)).fetchall()
     sle_dicts = [row_to_dict(r) for r in sle_rows]
 
-    gl_entries = create_perpetual_inventory_gl(
-        conn, sle_dicts,
-        voucher_type="delivery_note",
-        voucher_id=args.delivery_note_id,
-        posting_date=posting_date,
-        company_id=company_id,
-        expense_account_id=cogs_account_id,
-        cost_center_id=cost_center_id,
-    )
+    try:
+        gl_entries = create_perpetual_inventory_gl(
+            conn, sle_dicts,
+            voucher_type="delivery_note",
+            voucher_id=args.delivery_note_id,
+            posting_date=posting_date,
+            company_id=company_id,
+            expense_account_id=cogs_account_id,
+            cost_center_id=cost_center_id,
+        )
+    except ValueError as e:
+        sys.stderr.write(f"[erpclaw-selling] {e}\n")
+        err(f"GL posting failed: {e}")
 
     gl_ids = []
     if gl_entries:
@@ -2491,15 +2495,19 @@ def submit_sales_invoice(conn, args):
                 (voucher_type, args.sales_invoice_id)).fetchall()
             sle_dicts = [row_to_dict(r) for r in sle_rows]
 
-            cogs_gl_entries = create_perpetual_inventory_gl(
-                conn, sle_dicts,
-                voucher_type=voucher_type,
-                voucher_id=args.sales_invoice_id,
-                posting_date=posting_date,
-                company_id=company_id,
-                expense_account_id=cogs_account_id,
-                cost_center_id=cost_center_id,
-            )
+            try:
+                cogs_gl_entries = create_perpetual_inventory_gl(
+                    conn, sle_dicts,
+                    voucher_type=voucher_type,
+                    voucher_id=args.sales_invoice_id,
+                    posting_date=posting_date,
+                    company_id=company_id,
+                    expense_account_id=cogs_account_id,
+                    cost_center_id=cost_center_id,
+                )
+            except ValueError as e:
+                sys.stderr.write(f"[erpclaw-selling] {e}\n")
+                err(f"GL posting failed: {e}")
 
             if cogs_gl_entries:
                 for gle in cogs_gl_entries:

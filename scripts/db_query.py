@@ -345,6 +345,7 @@ ACTION_MAP = {
     "update-item": "erpclaw-inventory",
     "get-item": "erpclaw-inventory",
     "list-items": "erpclaw-inventory",
+    "resolve-item": "erpclaw-inventory",
     "add-item-group": "erpclaw-inventory",
     "list-item-groups": "erpclaw-inventory",
     "add-warehouse": "erpclaw-inventory",
