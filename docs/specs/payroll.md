@@ -1,215 +1,416 @@
 # Folha de Pagamento — `erpclaw-payroll`
 
-> Specs funcionais (enxutas) por funcionalidade. Geradas do código: `scripts/erpclaw-payroll/db_query.py`. 13 funcionalidades · 29 ações.
+> Spec funcional por ação. Gerada de `scripts/erpclaw-payroll/db_query.py`. 13 funcionalidades · 30 ações.
 
 ## Componentes
 
-**Objetivo.** Cadastrar e listar componentes salariais (vencimentos, descontos e contribuições patronais) que servem de blocos para montar estruturas salariais e calcular holerites.
+**Objetivo.** Cria e lista componentes salariais (proventos, descontos e contribuições do empregador) que servem de blocos para as estruturas salariais.
 
-**Ações:**
-- `add-salary-component` — Cria um componente salarial com tipo (earning/deduction/employer_contribution) e flags fiscais.
-- `list-salary-components` — Lista componentes com filtro por tipo, busca por nome e paginação.
+### `add-salary-component`
 
-| Campo | Detalhe |
+Cria um componente salarial (earning, deduction ou employer_contribution) com suas flags fiscais.
+
+| | |
 |---|---|
-| **Entradas** | add: --name, --component-type (obrigatórios), --is-tax-applicable, --is-statutory, --is-pre-tax, --variable-based-on-taxable-salary, --depends-on-payment-days, --is-supplemental, --gl-account-id, --description. list: --component-type, --search, --limit, --offset. |
-| **Saídas** | add: salary_component_id, name, component_type. list: count, components[], limit, offset, has_more. |
-| **Regras de negócio** | component-type deve estar em (earning, deduction, employer_contribution). Nome único (erro se já existir). Booleanos aceitam 1/0, true/false, yes/no com defaults: is_tax_applicable=1, depends_on_payment_days=1, demais=0. Se --gl-account-id informado, valida que a conta existe. |
-| **Efeitos colaterais** | Insere em salary_component e grava auditoria (audit) para add-salary-component. list é somente leitura. |
-| **Pré-condições** | Tabelas company e employee existentes. Conta GL deve existir se --gl-account-id for usado. |
+| **Entradas** | --name (obrigatório); --component-type (obrigatório: earning\|deduction\|employer_contribution); --is-tax-applicable (default 1); --is-statutory (default 0); --is-pre-tax (default 0); --variable-based-on-taxable-salary (default 0); --depends-on-payment-days (default 1); --is-supplemental (default 0); --gl-account-id; --description. |
+| **Saídas** | salary_component_id, name, component_type. |
+| **Regras** | component_type deve estar em (earning, deduction, employer_contribution); nome único (erro se já existe); se --gl-account-id informado o account deve existir; flags booleanas aceitam 1/0, true/false, yes/no. Sem ciclo draft/submit. |
+| **Efeitos colaterais** | Insere 1 linha em salary_component; grava audit_log (add-salary-component). 2 commits. |
+| **Pré-condições** | Tabelas company e employee existem (REQUIRED_TABLES); GL account opcional precisa existir se informado. |
+
+### `list-salary-components`
+
+Lista componentes salariais com filtro opcional por tipo e busca textual, paginado.
+
+| | |
+|---|---|
+| **Entradas** | --component-type (filtro opcional, validado contra os tipos válidos); --search (LIKE no name); --limit (default 20); --offset (default 0). |
+| **Saídas** | count, components[] (id, name, component_type, flags, gl_account_id, description, created_at, updated_at), limit, offset, has_more. |
+| **Regras** | Se --component-type informado e inválido, erro. Ordena por name. has_more = offset+limit < total. |
+| **Efeitos colaterais** | nenhum (leitura). |
+| **Pré-condições** | Nenhuma além das tabelas base. |
 
 ## Estruturas
 
-**Objetivo.** Definir estruturas salariais que agrupam componentes com regra de cálculo (valor fixo, percentual sobre base, ou fórmula) e frequência de pagamento; consultar e listar essas estruturas.
+**Objetivo.** Define estruturas salariais (conjunto de componentes com valor fixo, percentual ou fórmula) e permite consultá-las.
 
-**Ações:**
-- `add-salary-structure` — Cria estrutura salarial com array JSON de componentes e seus detalhes de cálculo.
-- `get-salary-structure` — Retorna a estrutura com o detalhamento ordenado de seus componentes.
-- `list-salary-structures` — Lista estruturas com filtro por empresa/busca e contagem de componentes.
+### `add-salary-structure`
 
-| Campo | Detalhe |
+Cria uma estrutura salarial com seus detalhes de componentes (amount/percentage/formula).
+
+| | |
 |---|---|
-| **Entradas** | add: --name, --company-id, --components (JSON: salary_component_id, amount?, percentage?, formula?, base_component_id?, sort_order?), --payroll-frequency (default monthly). get: --salary-structure-id. list: --company-id, --search, --limit, --offset. |
-| **Saídas** | add: salary_structure_id, name, payroll_frequency, component_count. get: salary_structure com components[] (inclui base_component_name) e component_count. list: count, structures[] com component_count. |
-| **Regras de negócio** | payroll-frequency em (monthly, biweekly, weekly). Nome único. Empresa deve existir. Cada componente: no máximo UM de amount/percentage/formula; percentual entre 0 e 100; sem componentes duplicados; base_component_id e salary_component_id devem existir. Moeda fixada em USD; is_active=1. |
-| **Efeitos colaterais** | Insere em salary_structure e salary_structure_detail; grava auditoria. get e list são somente leitura. |
-| **Pré-condições** | Empresa cadastrada e componentes salariais já criados (referenciados por id no JSON). |
+| **Entradas** | --name (obrigatório); --company-id (obrigatório); --components (obrigatório, JSON array); --payroll-frequency (default monthly: monthly\|biweekly\|weekly). |
+| **Saídas** | salary_structure_id, name, payroll_frequency, component_count. |
+| **Regras** | Frequência deve ser válida; company deve existir; nome único; cada item do JSON precisa de salary_component_id existente, sem duplicatas; no máximo um de amount/percentage/formula por componente; percentage em [0,100]; base_component_id (se informado) deve existir; currency fixado em USD; is_active=1. |
+| **Efeitos colaterais** | Insere 1 linha em salary_structure e N linhas em salary_structure_detail; grava audit_log (add-salary-structure). 2 commits. |
+| **Pré-condições** | Company existente; salary_components referenciados já criados. |
+
+### `get-salary-structure`
+
+Retorna uma estrutura salarial com a lista detalhada de seus componentes.
+
+| | |
+|---|---|
+| **Entradas** | --salary-structure-id (obrigatório). |
+| **Saídas** | salary_structure { campos da estrutura, components[] (id, salary_component_id, component_name, component_type, amount, percentage, formula, base_component_id, base_component_name, sort_order), component_count }. |
+| **Regras** | Estrutura deve existir (erro caso contrário); enriquece base_component_name a partir de salary_component; ordena por sort_order. |
+| **Efeitos colaterais** | nenhum (leitura). |
+| **Pré-condições** | Estrutura salarial existente. |
+
+### `list-salary-structures`
+
+Lista estruturas salariais com filtro por empresa e busca, incluindo a contagem de componentes.
+
+| | |
+|---|---|
+| **Entradas** | --company-id (filtro); --search (LIKE no name); --limit (default 20); --offset (default 0). |
+| **Saídas** | count, structures[] (id, name, payroll_frequency, currency, company_id, is_active, component_count, timestamps), limit, offset, has_more. |
+| **Regras** | component_count via subconsulta correlacionada em salary_structure_detail; ordena por name. |
+| **Efeitos colaterais** | nenhum (leitura). |
+| **Pré-condições** | Nenhuma além das tabelas base. |
 
 ## Atribuições
 
-**Objetivo.** Vincular um funcionário a uma estrutura salarial com um valor-base e vigência, gerenciando o histórico de atribuições; listar atribuições.
+**Objetivo.** Vincula uma estrutura salarial a um funcionário com valor-base e vigência, e lista essas atribuições.
 
-**Ações:**
-- `add-salary-assignment` — Atribui estrutura salarial ao funcionário com base-amount e vigência, auto-encerrando a atribuição anterior.
-- `list-salary-assignments` — Lista atribuições com filtros por funcionário, empresa e intervalo de datas.
+### `add-salary-assignment`
 
-| Campo | Detalhe |
+Atribui uma estrutura salarial a um funcionário com base_amount e período de vigência, fechando automaticamente a atribuição anterior.
+
+| | |
 |---|---|
-| **Entradas** | add: --employee-id, --salary-structure-id, --base-amount, --effective-from (obrigatórios), --effective-to (opcional). list: --employee-id, --company-id, --from-date, --to-date, --limit, --offset. |
-| **Saídas** | add: salary_assignment_id, employee_id, salary_structure_id, base_amount, effective_from, effective_to, e previous_assignment_closed se houve encerramento. list: count, assignments[] (com employee_name e salary_structure_name), paginação. |
-| **Regras de negócio** | Funcionário e estrutura devem existir e pertencer à MESMA empresa. base-amount não-negativo (arredondado). effective-to >= effective-from. Se já existe atribuição ativa (effective_to nula ou >= novo effective_from), ela é encerrada no dia anterior ao novo início. Moeda USD. |
-| **Efeitos colaterais** | Insere em salary_assignment; faz UPDATE da atribuição anterior (effective_to); grava auditoria com descrição do encerramento. list é somente leitura. |
-| **Pré-condições** | Funcionário e estrutura salarial existentes e da mesma empresa. |
+| **Entradas** | --employee-id (obrigatório); --salary-structure-id (obrigatório); --base-amount (obrigatório, decimal texto); --effective-from (obrigatório, YYYY-MM-DD); --effective-to (opcional). |
+| **Saídas** | salary_assignment_id, employee_id, salary_structure_id, base_amount, effective_from, effective_to e previous_assignment_closed (se houve). |
+| **Regras** | Funcionário e estrutura devem existir; estrutura e funcionário devem ser da mesma company; base_amount não negativo; effective_to >= effective_from; se houver atribuição ativa anterior, ela é fechada com effective_to = dia anterior ao novo effective_from; currency USD; base arredondada. |
+| **Efeitos colaterais** | Insere 1 linha em salary_assignment; pode atualizar a linha da atribuição anterior (effective_to/updated_at); grava audit_log (add-salary-assignment). 2 commits. |
+| **Pré-condições** | Funcionário e estrutura salarial existentes na mesma empresa. |
 
-## Tabelas de IR (Income Tax Slabs)
+### `list-salary-assignments`
 
-**Objetivo.** Configurar tabelas progressivas de imposto de renda federal/estadual com faixas (brackets) de alíquotas e dedução padrão, usadas no cálculo do holerite; também cadastrar faixas estaduais para folha multi-estado.
+Lista atribuições salariais com filtros por funcionário, empresa e janela de datas (sobreposição), paginado.
 
-**Ações:**
-- `add-income-tax-slab` — Cria tabela de IR federal/estadual com faixas contíguas de alíquota e dedução padrão.
-- `add-state-tax-slab` — Cria uma faixa (bracket) de imposto estadual por estado e filing-status.
-
-| Campo | Detalhe |
+| | |
 |---|---|
-| **Entradas** | income-tax-slab: --name, --tax-jurisdiction (federal/state), --effective-from (obrig.), --filing-status, --state-code, --standard-deduction, --rates (JSON: from_amount, to_amount, rate). state-tax-slab: --state-code, --bracket-start, --rate (obrig.), --bracket-end, --filing-status (default single). |
-| **Saídas** | income-tax-slab: income_tax_slab_id, name, tax_jurisdiction, state_code, filing_status, effective_from, standard_deduction, rate_count. state-tax-slab: state_tax_slab_id, state_code, bracket_start, bracket_end, rate, filing_status. |
-| **Regras de negócio** | jurisdiction em (federal, state); state-code obrigatório para state e ignorado para federal. filing-status em (single, married_jointly, married_separately, head_of_household). Faixas devem ser contíguas (from == to anterior); última pode ter to_amount null; rate 0-100; to>from. Alíquotas são percentuais. Aplicação no cálculo é progressiva (graduada). |
-| **Efeitos colaterais** | add-income-tax-slab insere em income_tax_slab e income_tax_slab_rate e grava auditoria. add-state-tax-slab insere em state_tax_slab (sem auditoria). |
-| **Pré-condições** | Nenhuma dependência de outras entidades; estado válido para faixas estaduais. |
+| **Entradas** | --employee-id; --company-id; --from-date (atribuição ativa em/depois); --to-date (effective_from <= to-date); --limit (default 20); --offset (default 0). |
+| **Saídas** | count, assignments[] (campos da atribuição + employee_name + salary_structure_name), limit, offset, has_more. |
+| **Regras** | JOIN com employee e salary_structure; filtros de data tratam effective_to NULL como aberto; ordena por effective_from DESC. |
+| **Efeitos colaterais** | nenhum (leitura). |
+| **Pré-condições** | Nenhuma além das tabelas base. |
 
-## Config. de Impostos (FICA/FUTA/SUTA)
+## Tabelas de IR
 
-**Objetivo.** Configurar por ano-fiscal as alíquotas e bases de FICA (Social Security e Medicare) e os tributos de desemprego FUTA (federal) e SUTA (estadual), parâmetros que alimentam o cálculo das retenções e contribuições patronais.
+**Objetivo.** Configura faixas progressivas de imposto de renda federal e estadual e o vínculo de estados do funcionário.
 
-**Ações:**
-- `update-fica-config` — Upsert da configuração FICA do ano: base salarial e alíquotas de SS/Medicare empregado/empregador e Medicare adicional.
-- `update-futa-suta-config` — Upsert de FUTA (state_code nulo) ou SUTA (state_code preenchido) com base, alíquota e override patronal.
+### `add-income-tax-slab`
 
-| Campo | Detalhe |
+Cria uma faixa (slab) de imposto de renda federal ou estadual com seus brackets de alíquota.
+
+| | |
 |---|---|
-| **Entradas** | fica: --tax-year, --ss-wage-base, --ss-employee-rate, --ss-employer-rate, --medicare-employee-rate, --medicare-employer-rate, --additional-medicare-threshold, --additional-medicare-rate (todos obrig.). futa-suta: --tax-year, --wage-base, --rate (obrig.), --state-code (NULL=FUTA), --employer-rate-override. |
-| **Saídas** | Os parâmetros gravados mais action='created' ou 'updated' (e, em futa-suta, config_type 'FUTA (federal)' ou 'SUTA (XX)'). |
-| **Regras de negócio** | tax-year inteiro em [2000,2100]. Todos os valores decimais validados e não-negativos; rate 0-100. FICA usa ON CONFLICT(tax_year); FUTA/SUTA usa ON CONFLICT(tax_year, state_code). employer_rate_override permite ajuste por empresa (SUTA experience-rated). |
-| **Efeitos colaterais** | Upsert em fica_config e futa_suta_config respectivamente; grava auditoria com old_values/new_values. Nenhuma postagem contábil aqui (apenas configuração). |
-| **Pré-condições** | Nenhuma dependência de empresa/funcionário; apenas o ano-fiscal. |
+| **Entradas** | --name (obrigatório); --tax-jurisdiction (obrigatório: federal\|state); --effective-from (obrigatório); --filing-status; --state-code (obrigatório se state); --standard-deduction (default 0); --rates (JSON array de brackets). |
+| **Saídas** | income_tax_slab_id, name, tax_jurisdiction, state_code, filing_status, effective_from, standard_deduction, rate_count. |
+| **Regras** | jurisdiction válida; state exige state-code (federal ignora state-code); filing_status válido se informado; standard_deduction >= 0; brackets contíguos (from_amount == to_amount anterior), último pode ter to_amount null; rate em [0,100]; to_amount > from_amount. is_active=1. |
+| **Efeitos colaterais** | Insere 1 linha em income_tax_slab e N linhas em income_tax_slab_rate; grava audit_log (add-income-tax-slab). 2 commits. |
+| **Pré-condições** | Nenhuma específica além das tabelas base. |
 
-## Ciclos de Folha (Payroll Runs)
+### `add-state-tax-slab`
 
-**Objetivo.** Gerenciar o ciclo de vida de uma corrida de folha por período: criar (rascunho), gerar holerites, submeter com postagem no GL e cancelar com estorno; também o status individual da corrida.
+Adiciona um único bracket de imposto estadual para um estado/filing_status.
 
-**Ações:**
-- `create-payroll-run` — Cria uma corrida de folha em status 'draft' para um período, validando sobreposição.
-- `submit-payroll-run` — Submete a corrida: marca holerites como 'submitted' e posta entradas no GL de forma atômica e balanceada.
-- `cancel-payroll-run` — Cancela corrida submetida, estorna o GL e marca holerites como 'cancelled'.
-
-| Campo | Detalhe |
+| | |
 |---|---|
-| **Entradas** | create: --company-id, --period-start, --period-end (obrig.), --department-id, --payroll-frequency. submit: --payroll-run-id, --cost-center-id (busca default se ausente). cancel: --payroll-run-id. |
-| **Saídas** | create: payroll_run_id, naming_series, período, frequência. submit: gl_entries (qtd), total_gross, total_net, total_employer_tax. cancel: reversed_entries (qtd), naming_series. |
-| **Regras de negócio** | Ciclo: draft -> submitted -> cancelled. create exige period_start < period_end, empresa existente, departamento válido se informado, e proíbe corrida sobreposta não-cancelada. submit exige status 'draft' e ao menos 1 holerite draft; calcula impostos patronais (SS/Medicare/FUTA/SUTA), monta DR despesa salarial+tributos patronais e CR líquido(+pré-tax por funcionário)/IR federal/estadual/SS/Medicare/FUTA/SUTA, valida DR=CR (auto-corrige diferença <=1.00) e descarta entradas zeradas. cancel exige status 'submitted'. |
-| **Efeitos colaterais** | create: insere payroll_run, auditoria. submit: insere gl_entry via insert_gl_entries (voucher_type='payroll_entry'), atualiza salary_slip para 'submitted' e payroll_run para 'submitted', auditoria; rollback se a postagem falhar. cancel: reverse_gl_entries, atualiza slips e run para 'cancelled', auditoria. |
-| **Pré-condições** | Empresa com plano de contas (conta de despesa salarial e payroll payable localizáveis), FICA/FUTA/SUTA do ano configurados para os tributos patronais, cost center, e holerites já gerados antes do submit. |
+| **Entradas** | --state-code (obrigatório); --bracket-start (obrigatório); --rate (obrigatório); --bracket-end (opcional); --filing-status (default single). |
+| **Saídas** | state_tax_slab_id, state_code, bracket_start, bracket_end, rate, filing_status. |
+| **Regras** | filing_status válido; bracket-start >= 0; bracket-end > bracket-start se informado; rate em [0,100]; state_code uppercase; valores arredondados. |
+| **Efeitos colaterais** | Insere 1 linha em state_tax_slab. 1 commit. Não grava audit_log. |
+| **Pré-condições** | Nenhuma específica além das tabelas base. |
 
-## Holerites (Salary Slips)
+### `update-employee-state-config`
 
-**Objetivo.** Gerar, consultar e listar os holerites de cada funcionário de uma corrida, executando o motor de cálculo completo (vencimentos, proporcionalização, pré-tax, IR federal/estadual, FICA, horas extras e penhoras).
+Define ou atualiza o estado de trabalho e o estado de residência de um funcionário (UPSERT).
 
-**Ações:**
-- `generate-salary-slips` — Motor de cálculo: gera salary_slip e salary_slip_detail para todos os funcionários elegíveis da corrida.
-- `get-salary-slip` — Retorna um holerite com earnings e deductions aninhados.
-- `list-salary-slips` — Lista holerites filtrando por corrida, funcionário e status, com paginação.
-
-| Campo | Detalhe |
+| | |
 |---|---|
-| **Entradas** | generate: --payroll-run-id. get: --salary-slip-id. list: --payroll-run-id, --employee-id, --status, --limit, --offset. |
-| **Saídas** | generate: payroll_run_id, slips_generated, total_gross, total_deductions, total_net. get: campos do slip + earnings[], deductions[], details[]. list: count, slips[] (com employee_name), paginação. |
-| **Regras de negócio** | generate exige run em 'draft'; reapaga slips draft existentes (permite regerar). Vencimentos por valor/percentual sobre base (percentual tem prioridade) e prorrateio por payment_days (dias úteis menos folga não-paga). Pré-tax 401k (% do bruto) e HSA do cadastro do funcionário. IR federal progressivo anualizado menos dedução padrão; salário suplementar com flat 22% (37% acima de 1M YTD). IR estadual via employee_state_config. FICA: SS limitado à wage base via YTD, Medicare sem teto + Medicare adicional 0.9% acima do limiar; respeita is_exempt_from_fica. Penhoras pós-imposto por prioridade com teto federal. Slips criados em status 'draft'. |
-| **Efeitos colaterais** | generate: deleta/insere salary_slip e salary_slip_detail, atualiza totais da payroll_run, ATUALIZA wage_garnishment (cumulative_paid e auto status 'completed'), pode auto-criar componentes estatutários, auditoria. get/list são somente leitura. Sem postagem GL nesta etapa (ocorre no submit). |
-| **Pré-condições** | Corrida em 'draft'; funcionários ativos com salary_assignment vigente; estrutura com componentes; FICA do ano para reter FICA; opcionalmente tabelas de IR, overtime_policy, employee_state_config e penhoras. |
+| **Entradas** | --employee-id (obrigatório); --work-state (obrigatório); --residence-state (obrigatório). |
+| **Saídas** | employee_id, work_state, residence_state. |
+| **Regras** | Funcionário deve existir; estados em uppercase; UPSERT por employee_id (ON CONFLICT atualiza work_state/residence_state/updated_at). |
+| **Efeitos colaterais** | Insere ou atualiza 1 linha em employee_state_config. 1 commit. Não grava audit_log. |
+| **Pré-condições** | Funcionário existente. |
 
-## W-2 (Dados de Fim de Ano)
+## Config. de Impostos (FICA/FUTA)
 
-**Objetivo.** Consolidar todos os holerites submetidos do ano por funcionário e produzir os dados das caixas (boxes) do formulário W-2 para fins de declaração anual.
+**Objetivo.** Configura por ano-fiscal as alíquotas FICA (Social Security/Medicare) e as bases/alíquotas FUTA/SUTA.
 
-**Ações:**
-- `generate-w2-data` — Agrega slips submetidos do ano e calcula as caixas 1-6 e 12 (códigos D/W) do W-2 por funcionário.
+### `update-fica-config`
 
-| Campo | Detalhe |
+Insere ou atualiza (UPSERT) as taxas de Social Security e Medicare para um ano-fiscal.
+
+| | |
 |---|---|
-| **Entradas** | --tax-year, --company-id (ambos obrigatórios). |
-| **Saídas** | tax_year, company_id, company_name, employee_count e w2_data[] com employee_id, employee_name, ssn_last_four, filing_status e boxes (1=salários líquidos de pré-tax, 2=IR federal, 3=salário SS limitado à base, 4=SS retido, 5=salário Medicare, 6=Medicare retido, 12.D=401k, 12.W=HSA). |
-| **Regras de negócio** | tax-year inteiro; empresa deve existir. Considera apenas slips com status 'submitted' do ano-calendário. Box1 = bruto - pré-tax (401k+HSA+demais pré-tax). Box3 limitado à ss_wage_base do FICA (default 168600 se sem config). Box12 só inclui códigos não-zero. SSN é descriptografado e mascarado para os 4 últimos dígitos. |
-| **Efeitos colaterais** | Nenhum (somente leitura); apenas descriptografa SSN para exibição parcial. |
-| **Pré-condições** | Empresa cadastrada; holerites do ano já submetidos; idealmente FICA do ano configurado para a base de SS da Box 3. |
+| **Entradas** | Todos obrigatórios: --tax-year; --ss-wage-base; --ss-employee-rate; --ss-employer-rate; --medicare-employee-rate; --medicare-employer-rate; --additional-medicare-threshold; --additional-medicare-rate. |
+| **Saídas** | tax_year, ss_wage_base, ss_employee_rate, ss_employer_rate, medicare_employee_rate, medicare_employer_rate, additional_medicare_threshold, additional_medicare_rate, action (created\|updated). |
+| **Regras** | tax_year inteiro em [2000,2100]; todos os campos decimais válidos e não negativos; UPSERT por tax_year (ON CONFLICT atualiza todas as taxas). |
+| **Efeitos colaterais** | Insere ou atualiza 1 linha em fica_config; grava audit_log (update-fica-config) com old_values/new_values. 2 commits. |
+| **Pré-condições** | Nenhuma específica além das tabelas base. |
 
-## Penhoras (Wage Garnishments)
+### `update-futa-suta-config`
 
-**Objetivo.** Gerenciar ordens de penhora salarial por funcionário (pensão, levy fiscal, empréstimo estudantil, credor), com prioridade legal e teto federal, aplicadas pós-imposto na geração dos holerites.
+Insere ou atualiza (UPSERT) a configuração FUTA (federal) ou SUTA (estadual) de desemprego por ano-fiscal.
 
-**Ações:**
-- `add-garnishment` — Cria ordem de penhora com tipo, valor/percentual, prioridade e teto federal.
-- `update-garnishment` — Atualiza status, valor, total devido ou data-fim da penhora.
-- `list-garnishments` — Lista penhoras por funcionário/empresa/status, ordenadas por prioridade.
-- `get-garnishment` — Retorna uma penhora pelo id.
-
-| Campo | Detalhe |
+| | |
 |---|---|
-| **Entradas** | add: --employee-id, --order-number, --creditor-name, --garnishment-type, --start-date (obrig.), --amount-or-percentage, --is-percentage, --total-owed, --end-date. update: --garnishment-id + campos. list: --employee-id, --company-id, --status. get: --garnishment-id. |
-| **Saídas** | add: garnishment_id, priority. update: updated=true. list: garnishments[], count. get: registro completo. |
-| **Regras de negócio** | garnishment-type em (child_support, tax_levy, student_loan, creditor) com prioridade 1-4 nessa ordem; teto (max_percentage) 50% para child_support, 25% para os demais. Status válidos: active/paused/completed/cancelled. Criada com status 'active' e cumulative_paid=0. Na folha, aplica-se por prioridade sobre a renda disponível, respeitando teto e saldo devedor. |
-| **Efeitos colaterais** | add insere em wage_garnishment + auditoria; update faz dynamic_update + auditoria; list/get somente leitura. O cumulative_paid e o status 'completed' são atualizados em generate-salary-slips (não nestas ações). |
-| **Pré-condições** | Funcionário existente (a empresa é derivada do funcionário). |
+| **Entradas** | --tax-year (obrigatório); --wage-base (obrigatório); --rate (obrigatório); --state-code (opcional, NULL=FUTA federal, valor=SUTA estadual); --employer-rate-override (opcional). |
+| **Saídas** | tax_year, state_code, config_type, wage_base, rate, employer_rate_override, action (created\|updated). |
+| **Regras** | tax_year em [2000,2100]; wage_base >= 0; rate em [0,100]; employer_rate_override em [0,100] se informado; UPSERT por (tax_year, state_code). |
+| **Efeitos colaterais** | Insere ou atualiza 1 linha em futa_suta_config; grava audit_log (update-futa-suta-config) com old/new. 2 commits. |
+| **Pré-condições** | Nenhuma específica além das tabelas base. |
 
-## Horas Extras (Overtime)
+## Ciclos de Folha
 
-**Objetivo.** Configurar a política de horas extras da empresa e calcular HE de um funcionário a partir da frequência (attendance), integrando o valor de HE ao bruto na geração de holerites.
+**Objetivo.** Gerencia o ciclo de vida do payroll_run: criação em rascunho, geração de holerites, submissão com postagem contábil e cancelamento com estorno.
 
-**Ações:**
-- `add-overtime-policy` — Cria/atualiza (upsert) a política de HE da empresa: limiares semanal/diário e multiplicadores.
-- `calculate-overtime` — Calcula horas regulares/extras e valores de um funcionário no período a partir da attendance.
+### `create-payroll-run`
 
-| Campo | Detalhe |
+Cria um payroll_run em rascunho para um período de pagamento.
+
+| | |
 |---|---|
-| **Entradas** | policy: --company-id (obrig.), --weekly-threshold (default 40), --daily-threshold, --ot-multiplier (default 1.5), --double-ot-multiplier (default 2.0). calculate: --employee-id, --period-start, --period-end (obrig.), --hourly-rate (senão derivado da atribuição). |
-| **Saídas** | policy: company_id e parâmetros gravados. calculate: total_hours, regular_hours, ot_hours, hourly_rate, ot_multiplier, regular_amount, ot_amount, total_amount. |
-| **Regras de negócio** | Empresa deve existir; multiplicadores e limiares não-negativos. Upsert ON CONFLICT(company_id). Hora derivada = salário-base*12/2080. HE = maior entre HE diária (horas>daily_threshold) e HE semanal (total - weekly_threshold*nº semanas), sem dupla contagem. Considera attendance com status present/work_from_home/half_day (working_hours default 8). |
-| **Efeitos colaterais** | add-overtime-policy faz upsert em overtime_policy (sem auditoria). calculate-overtime é somente leitura. Observação: a integração de HE ao bruto e a criação do componente 'Overtime Pay' ocorrem em generate-salary-slips. |
-| **Pré-condições** | Empresa cadastrada e política de HE existente (para calculate); registros de attendance no período; salary_assignment vigente se não for passada --hourly-rate. |
+| **Entradas** | --company-id (obrigatório); --period-start (obrigatório); --period-end (obrigatório); --department-id (opcional, filtro); --payroll-frequency (default monthly). |
+| **Saídas** | payroll_run_id, naming_series, period_start, period_end, payroll_frequency. |
+| **Regras** | period_start < period_end; frequência válida; company existe; department existe se informado (resolve por id ou name); erro se houver payroll_run sobreposto não cancelado na mesma empresa; gera naming_series; status='draft', totais zerados. |
+| **Efeitos colaterais** | Insere 1 linha em payroll_run (status draft); grava audit_log (create-payroll-run). 1 commit. |
+| **Pré-condições** | Company existente; department existente se informado. |
 
-## Retro (Pagamento Retroativo)
+### `generate-salary-slips`
 
-**Objetivo.** Calcular pagamento retroativo de um funcionário comparando a taxa-base atual com a anterior e gerando ajustes por período afetado.
+Calcula e gera os holerites (salary_slip) de todos os funcionários elegíveis do payroll_run, com proventos, impostos e descontos.
 
-**Ações:**
-- `calculate-retro-pay` — Compara as duas últimas atribuições e gera ajustes retroativos por período afetado.
-
-| Campo | Detalhe |
+| | |
 |---|---|
-| **Entradas** | --employee-id (obrig.), --from-date, --to-date (limitam o intervalo). |
-| **Saídas** | employee_id, periods_affected, total_retro_amount, details[] (period_from, period_to, old_rate, new_rate, adjustment_amount); mensagem se não houver retro. |
-| **Regras de negócio** | Exige >= 2 atribuições salariais. Compara as duas mais recentes; se a atual não for maior que a anterior, retorna 0 sem gerar ajustes. Intervalo padrão = effective_from da anterior até o da atual, ajustável por from/to-date. Ajuste por período = diferença de taxa-base (rate_diff). Se houver slips no intervalo, gera um ajuste por slip; senão, gera por períodos aproximados de 30 dias. |
-| **Efeitos colaterais** | Insere registros em retro_pay_adjustment com status 'pending'. Sem postagem no GL e sem auditoria nesta ação. |
-| **Pré-condições** | Funcionário com pelo menos duas atribuições salariais no histórico. |
+| **Entradas** | --payroll-run-id (obrigatório). |
+| **Saídas** | payroll_run_id, slips_generated, total_gross, total_deductions, total_net. |
+| **Regras** | Run deve existir e estar em 'draft'; apaga slips draft anteriores (regeração); seleciona funcionários ativos com salary_assignment vigente (e department se houver); calcula dias trabalhados/pagos com leave não-pago; proventos fixos/percentuais com proração; hora extra via overtime_policy + attendance; pré-tax 401k/HSA; IR federal progressivo (anualizado) + flat 22%/37% para wages suplementares; IR estadual; FICA (SS com teto, Medicare e Additional Medicare); penhoras pós-tax priorizadas com tetos federais. Erro se não houver funcionários elegíveis. |
+| **Efeitos colaterais** | Deleta e insere linhas em salary_slip e salary_slip_detail; pode criar salary_components estatutários (auto); atualiza cumulative_paid e status de wage_garnishment; atualiza totais/employee_count do payroll_run; grava audit_log (generate-salary-slips). 1 commit. Não posta GL. |
+| **Pré-condições** | Payroll_run em draft; funcionários ativos com salary_assignment vigente; FICA/tax slabs configurados para cálculo completo. |
 
-## ACH/NACHA (Depósito Direto)
+### `submit-payroll-run`
 
-**Objetivo.** Gerenciar contas bancárias dos funcionários (com criptografia em repouso) e gerar o arquivo NACHA/ACH de pagamento líquido a partir de uma corrida submetida.
+Submete o payroll_run: marca holerites como submitted e posta as lançamentos contábeis balanceados no razão.
 
-**Ações:**
-- `add-employee-bank-account` — Cadastra conta bancária do funcionário para depósito direto, criptografando routing/conta.
-- `list-employee-bank-accounts` — Lista contas do funcionário com número de conta mascarado.
-- `generate-nacha-file` — Gera o arquivo NACHA de largura fixa (registros 1/5/6/8/9) com os líquidos da corrida.
-
-| Campo | Detalhe |
+| | |
 |---|---|
-| **Entradas** | add: --employee-id, --bank-name, --routing-number, --account-number (obrig.), --account-type (checking/savings, default checking). list: --employee-id. nacha: --payroll-run-id. |
-| **Saídas** | add: employee_bank_account_id e dados básicos. list: accounts[] (account_number mascarado, routing descriptografado), count. nacha: file_content, entry_count, total_amount, payroll_run_id. |
-| **Regras de negócio** | routing-number exatamente 9 dígitos; account-number 4-17 dígitos; account-type checking/savings (conta criada como is_primary=1). NACHA exige corrida em status 'submitted' ou 'paid'; usa apenas conta primária por funcionário e líquido > 0; txn code 22(checking)/32(savings); monta header de arquivo/lote, entry details, batch e file control com entry hash e totais em centavos. |
-| **Efeitos colaterais** | add-employee-bank-account insere em employee_bank_account (campos sensíveis criptografados) + auditoria. list e generate-nacha-file são somente leitura (descriptografam para exibir/montar o arquivo); o arquivo é retornado no JSON, não persistido. |
-| **Pré-condições** | Funcionário existente; para NACHA, corrida submetida/paga com holerites não-cancelados e funcionários com conta bancária primária cadastrada. |
+| **Entradas** | --payroll-run-id (obrigatório); --cost-center-id (usa centro de custo default se omitido). |
+| **Saídas** | payroll_run_id, naming_series, gl_entries (qtd), total_gross, total_net, total_employer_tax. |
+| **Regras** | Run deve existir e estar 'draft'; deve ter slips draft; resolve contas de GL (salary_expense e payroll_payable obrigatórias); calcula impostos patronais (SS/Medicare empregador, FUTA, SUTA) por funcionário; monta DR despesa salarial/patronal e CR payroll_payable (por funcionário, com partido), IR federal/estadual, SS, Medicare, FUTA, SUTA; auto-corrige diferenças de arredondamento <=1.00; remove entradas zero; aborta com rollback se o GL falhar. |
+| **Efeitos colaterais** | Insere lançamentos em gl_entry via insert_gl_entries (voucher_type payroll_entry); atualiza salary_slip para 'submitted' e payroll_run para 'submitted'; grava audit_log (submit-payroll-run). 1 commit final. |
+| **Pré-condições** | Payroll_run em draft com slips gerados; contas de despesa salarial e payroll payable existentes; centro de custo disponível. |
+
+### `cancel-payroll-run`
+
+Cancela um payroll_run submetido, estornando os lançamentos contábeis e marcando holerites como cancelled.
+
+| | |
+|---|---|
+| **Entradas** | --payroll-run-id (obrigatório). |
+| **Saídas** | payroll_run_id, naming_series, reversed_entries (qtd). |
+| **Regras** | Run deve existir e estar 'submitted' (erro caso contrário); estorna via reverse_gl_entries; aborta com rollback se o estorno falhar. |
+| **Efeitos colaterais** | Cria lançamentos de estorno em gl_entry (reverse_gl_entries); atualiza salary_slip para 'cancelled' e payroll_run para 'cancelled'; grava audit_log (cancel-payroll-run) com old/new. 1 commit final. |
+| **Pré-condições** | Payroll_run em status submitted com GL postado. |
+
+## Holerites
+
+**Objetivo.** Consulta individual e listagem dos holerites (salary_slip) gerados, com seus proventos e descontos.
+
+### `get-salary-slip`
+
+Retorna um holerite com seus detalhes aninhados de proventos e descontos.
+
+| | |
+|---|---|
+| **Entradas** | --salary-slip-id (obrigatório). |
+| **Saídas** | Campos do slip no topo + employee_name/first_name/last_name + earnings[], deductions[], details[] (id, salary_component_id, component_name, component_type, amount, year_to_date). |
+| **Regras** | Slip deve existir (erro caso contrário); separa detalhes em earnings vs deductions; details = earnings + deductions. |
+| **Efeitos colaterais** | nenhum (leitura). |
+| **Pré-condições** | Salary slip existente. |
+
+### `list-salary-slips`
+
+Lista holerites com filtros por payroll run, funcionário e status, paginado.
+
+| | |
+|---|---|
+| **Entradas** | --payroll-run-id; --employee-id; --status (draft\|submitted\|paid\|cancelled); --limit (default 20); --offset (default 0). |
+| **Saídas** | count, slips[] (campos do slip + employee_name), limit, offset, has_more. |
+| **Regras** | JOIN com employee; ordena por created_at DESC; has_more = offset+limit < total. |
+| **Efeitos colaterais** | nenhum (leitura). |
+| **Pré-condições** | Nenhuma além das tabelas base. |
+
+## W-2
+
+**Objetivo.** Gera os dados de W-2 de fim de ano para os funcionários a partir dos holerites submetidos.
+
+### `generate-w2-data`
+
+Agrega holerites submetidos do ano e produz os boxes de W-2 por funcionário.
+
+| | |
+|---|---|
+| **Entradas** | --tax-year (obrigatório); --company-id (obrigatório). |
+| **Saídas** | tax_year, company_id, company_name, employee_count, w2_data[] (employee_id, employee_name, ssn_last_four, filing_status, boxes{1..6, 12{D,W}}). |
+| **Regras** | tax_year inteiro; company deve existir; soma todos os slips submitted do ano; Box1=gross-pretax, Box2=federal, Box3=min(gross, ss_wage_base), Box4=SS, Box5=gross, Box6=Medicare, Box12 D=401k, W=HSA (só se >0); ss_wage_base de fica_config (default 168600); SSN descriptografado e exposto só nos últimos 4 dígitos. |
+| **Efeitos colaterais** | nenhum (leitura). Lê salary_slip/salary_slip_detail/salary_component/employee/company/fica_config; descriptografa SSN. |
+| **Pré-condições** | Holerites submetidos no ano-fiscal; company existente; idealmente fica_config do ano. |
+
+## Penhoras
+
+**Objetivo.** Gerencia ordens de penhora salarial (wage garnishment) por funcionário, com prioridade federal e tetos.
+
+### `add-garnishment`
+
+Adiciona uma ordem de penhora salarial para um funcionário.
+
+| | |
+|---|---|
+| **Entradas** | --employee-id (obrigatório); --order-number (obrigatório); --creditor-name (obrigatório); --garnishment-type (obrigatório: child_support\|tax_levy\|student_loan\|creditor); --start-date (obrigatório); --amount-or-percentage (default 0); --is-percentage (flag); --total-owed; --end-date. |
+| **Saídas** | garnishment_id, priority. |
+| **Regras** | Funcionário deve existir; type válido; priority derivada do tipo (child_support=1..creditor=4); max_percentage 50 para child_support, senão 25; status inicial 'active', cumulative_paid '0'. |
+| **Efeitos colaterais** | Insere 1 linha em wage_garnishment; grava audit_log (add-garnishment). 1 commit. |
+| **Pré-condições** | Funcionário existente. |
+
+### `update-garnishment`
+
+Atualiza campos de uma penhora (status, valor, total devido, data final).
+
+| | |
+|---|---|
+| **Entradas** | --garnishment-id (obrigatório); --status (active\|paused\|completed\|cancelled); --amount-or-percentage; --total-owed; --end-date. |
+| **Saídas** | updated (true). |
+| **Regras** | Penhora deve existir; status (se informado) deve ser válido; erro se nenhum campo a atualizar; atualiza updated_at. |
+| **Efeitos colaterais** | Atualiza 1 linha em wage_garnishment via dynamic_update; grava audit_log (update-garnishment). 1 commit. |
+| **Pré-condições** | Penhora existente. |
+
+### `list-garnishments`
+
+Lista penhoras filtrando por funcionário, empresa e status, ordenadas por prioridade.
+
+| | |
+|---|---|
+| **Entradas** | --employee-id; --company-id; --status. |
+| **Saídas** | garnishments[] (linhas de wage_garnishment), count. |
+| **Regras** | Filtros opcionais combinam por AND; ordena por priority e created_at. |
+| **Efeitos colaterais** | nenhum (leitura). |
+| **Pré-condições** | Nenhuma além das tabelas base. |
+
+### `get-garnishment`
+
+Retorna uma penhora individual pelo ID.
+
+| | |
+|---|---|
+| **Entradas** | --garnishment-id (obrigatório). |
+| **Saídas** | Linha completa de wage_garnishment. |
+| **Regras** | Erro se a penhora não existir. |
+| **Efeitos colaterais** | nenhum (leitura). |
+| **Pré-condições** | Penhora existente. |
+
+## Horas Extras
+
+**Objetivo.** Configura a política de horas extras da empresa e calcula as horas/valores de overtime de um funcionário no período.
+
+### `add-overtime-policy`
+
+Cria ou atualiza (UPSERT) a política de horas extras de uma empresa.
+
+| | |
+|---|---|
+| **Entradas** | --company-id (obrigatório); --weekly-threshold (default 40); --daily-threshold; --ot-multiplier (default 1.5); --double-ot-multiplier (default 2.0). |
+| **Saídas** | company_id, weekly_threshold, daily_threshold, ot_multiplier, double_ot_multiplier. |
+| **Regras** | Company deve existir; thresholds/multiplicadores numéricos e não negativos; UPSERT por company_id (ON CONFLICT atualiza thresholds/multiplicadores/updated_at). |
+| **Efeitos colaterais** | Insere ou atualiza 1 linha em overtime_policy. 1 commit. Não grava audit_log. |
+| **Pré-condições** | Company existente. |
+
+### `calculate-overtime`
+
+Calcula horas regulares/extras e valores de overtime de um funcionário em um período a partir da attendance.
+
+| | |
+|---|---|
+| **Entradas** | --employee-id (obrigatório); --period-start (obrigatório); --period-end (obrigatório); --hourly-rate (opcional; senão derivado da salary_assignment). |
+| **Saídas** | employee_id, period_start, period_end, total_hours, regular_hours, ot_hours, hourly_rate, ot_multiplier, regular_amount, ot_amount, total_amount. |
+| **Regras** | Funcionário deve existir; deve haver overtime_policy da empresa (senão erro); hourly_rate derivado de base_amount*12/2080 se não informado (erro se sem assignment); soma horas de attendance (present/wfh/half_day); OT = max(OT diário, OT semanal=horas acima do weekly_threshold*num_semanas); valores arredondados. |
+| **Efeitos colaterais** | nenhum (leitura). Lê employee, overtime_policy, salary_assignment, attendance. |
+| **Pré-condições** | Funcionário existente; overtime_policy da empresa; attendance no período; salary_assignment se hourly-rate omitido. |
+
+## Retro
+
+**Objetivo.** Calcula pagamento retroativo comparando a taxa salarial atual com a anterior e registra os ajustes pendentes.
+
+### `calculate-retro-pay`
+
+Calcula pagamento retroativo de um funcionário com base na diferença entre as duas últimas atribuições salariais e registra ajustes.
+
+| | |
+|---|---|
+| **Entradas** | --employee-id (obrigatório); --from-date (opcional); --to-date (opcional). |
+| **Saídas** | employee_id, periods_affected, total_retro_amount, details[] (period_from, period_to, old_rate, new_rate, adjustment_amount) e message quando não há retro. |
+| **Regras** | Funcionário deve existir; precisa de >=2 salary_assignments (erro caso contrário); compara última (current) vs penúltima (previous); se current_rate <= old_rate retorna 0 sem ajustes; período retro entre os effective_from, limitado por from/to-date; aplica diferença por slip não-cancelado no período, ou por períodos mensais aproximados (30 dias) se não houver slips. |
+| **Efeitos colaterais** | Insere N linhas em retro_pay_adjustment (status 'pending'). 1 commit. Não grava audit_log. |
+| **Pré-condições** | Funcionário com pelo menos 2 atribuições salariais. |
+
+## ACH/NACHA
+
+**Objetivo.** Cadastra contas bancárias de funcionários (criptografadas) e gera o arquivo NACHA/ACH de depósito direto a partir de um payroll run.
+
+### `add-employee-bank-account`
+
+Cadastra uma conta bancária de funcionário para ACH/depósito direto, com routing/account criptografados.
+
+| | |
+|---|---|
+| **Entradas** | --employee-id (obrigatório); --bank-name (obrigatório); --routing-number (obrigatório, 9 dígitos); --account-number (obrigatório, 4-17 dígitos); --account-type (checking\|savings, default checking). |
+| **Saídas** | employee_bank_account_id, employee_id, bank_name, account_type, message. |
+| **Regras** | Funcionário deve existir; routing exatamente 9 dígitos numéricos; account 4-17 dígitos numéricos; account_type válido; routing e account são criptografados antes de gravar; is_primary=1. |
+| **Efeitos colaterais** | Insere 1 linha em employee_bank_account (campos sensíveis cifrados); grava audit_log (add-employee-bank-account). 1 commit. |
+| **Pré-condições** | Funcionário existente. |
+
+### `list-employee-bank-accounts`
+
+Lista as contas bancárias de um funcionário com número de conta mascarado.
+
+| | |
+|---|---|
+| **Entradas** | --employee-id (obrigatório). |
+| **Saídas** | accounts[] (campos da conta com account_number mascarado ****+4, account_number_masked, routing_number descriptografado), count. |
+| **Regras** | Descriptografa colunas cifradas; mascara account_number (apenas últimos 4); ordena por created_at. |
+| **Efeitos colaterais** | nenhum (leitura). |
+| **Pré-condições** | Funcionário existente; contas cadastradas. |
+
+### `generate-nacha-file`
+
+Gera o conteúdo de um arquivo NACHA/ACH de pagamento a partir dos holerites de um payroll run submetido/pago.
+
+| | |
+|---|---|
+| **Entradas** | --payroll-run-id (obrigatório). |
+| **Saídas** | file_content (texto fixed-width NACHA), entry_count, total_amount, payroll_run_id. |
+| **Regras** | Run deve existir e estar 'submitted' ou 'paid'; usa slips não cancelados com net_pay>0; cada funcionário precisa de conta primária (senão é pulado); descriptografa routing/account; monta registros tipo 1/5/6/8/9; txn_code 22 (checking) ou 32 (savings); erro se nenhum funcionário com conta bancária. |
+| **Efeitos colaterais** | nenhum (leitura). Lê payroll_run, company, salary_slip, employee_bank_account; não persiste o arquivo no banco. |
+| **Pré-condições** | Payroll_run submitted/paid com slips; funcionários com employee_bank_account primária. |
 
 ## Status
 
-**Objetivo.** Retornar um painel de métricas e contagens do domínio de folha (componentes, estruturas, atribuições ativas, corridas por status, holerites, configs FICA/IR/FUTA-SUTA e última corrida).
+**Objetivo.** Retorna métricas e contagens resumidas do domínio de folha de pagamento.
 
-**Ações:**
-- `status` — Resumo agregado de contadores da folha, opcionalmente filtrado por empresa.
+### `status`
 
-| Campo | Detalhe |
+Retorna métricas-resumo de folha: contagens de componentes, estruturas, atribuições ativas, runs por status, holerites, FICA/tax slabs e o run mais recente.
+
+| | |
 |---|---|
-| **Entradas** | --company-id (opcional, filtra contagens scoped por empresa). |
-| **Saídas** | total_salary_components e por tipo, total/active salary_structures, total/active salary_assignments, total_payroll_runs e por status, total_salary_slips, fica_configs e fica_years, total_income_tax_slabs e por jurisdição, futa_suta_configs e latest_payroll_run. |
-| **Regras de negócio** | Componentes salariais são globais (não filtrados por empresa); demais contagens respeitam --company-id quando informado. Atribuições 'ativas' = effective_to nula ou futura e effective_from <= hoje. Última corrida ordenada por period_end desc. |
-| **Efeitos colaterais** | Nenhum (somente leitura). |
-| **Pré-condições** | Banco inicializado com as tabelas do domínio; empresa opcional para filtro. |
+| **Entradas** | --company-id (opcional, filtra estruturas/atribuições/runs/slips por empresa). |
+| **Saídas** | total_salary_components, components_by_type, total/active_salary_structures, total/active_salary_assignments, total_payroll_runs, payroll_runs_by_status, total_salary_slips, fica_configs, fica_years, total_income_tax_slabs, tax_slabs_by_jurisdiction, futa_suta_configs, latest_payroll_run. |
+| **Regras** | Componentes e FICA/tax slabs são globais (sem filtro de empresa); atribuições ativas = effective_from<=hoje e effective_to NULL/futuro; latest_payroll_run por period_end DESC. |
+| **Efeitos colaterais** | nenhum (leitura). |
+| **Pré-condições** | Nenhuma além das tabelas base. |
 

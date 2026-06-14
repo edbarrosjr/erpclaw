@@ -1,260 +1,780 @@
 # Vendas (Order-to-Cash) — `erpclaw-selling`
 
-> Specs funcionais (enxutas) por funcionalidade. Geradas do código: `scripts/erpclaw-selling/db_query.py`. 14 funcionalidades · 60 ações.
+> Spec funcional por ação. Gerada de `scripts/erpclaw-selling/db_query.py`. 14 funcionalidades · 60 ações.
 
 ## Clientes
 
-**Objetivo.** Cadastrar e manter clientes (pessoa jurídica/física), seus termos de pagamento, limite e status de crédito, e consultar o saldo em aberto. Inclui importação em massa por CSV.
+**Objetivo.** Cadastrar, consultar, listar e importar clientes da empresa, incluindo limite de crédito.
 
-**Ações:**
-- `add-customer` — Cria cliente com status 'active'; valida empresa e termos de pagamento; arredonda credit_limit.
-- `update-customer` — Atualiza campos do cliente (nome, credit_limit, grupo, tipo, email, phone, termos); aceita id ou name.
-- `get-customer` — Retorna o cliente mais o total em aberto (sales_invoice com status submitted/overdue/partially_paid e outstanding>0) e a contagem de faturas.
-- `list-customers` — Lista paginada com filtros por empresa, grupo e busca textual (name/tax_id).
-- `import-customers` — Importa clientes de CSV (colunas name, customer_type, territory, currency, email, phone); pula duplicados por (name, empresa); gera naming_series.
+### `add-customer`
 
-| Campo | Detalhe |
+Cria um registro de cliente no status 'active'.
+
+| | |
 |---|---|
-| **Entradas** | --name, --company-id, --customer-type (company\|individual), --customer-group, --payment-terms-id, --credit-limit, --tax-id, --exempt-from-sales-tax, --primary-address/contact, --email, --phone, --custom-fields; import: --csv-path; consultas: --customer-id, --search, --limit/--offset. |
-| **Saídas** | customer_id e dados criados/atualizados; get inclui total_outstanding e outstanding_invoice_count; list inclui customers[], total_count, has_more; import retorna imported/skipped/total_rows. |
-| **Regras de negócio** | customer_type deve ser company ou individual; valida existência de empresa e payment_terms; credit_limit arredondado a moeda. update aceita id OU name e exige ao menos um campo. import: exige .csv real, valida CSV e pula duplicado por (name, company_id). |
-| **Efeitos colaterais** | INSERT/UPDATE em customer; campos custom via store_from_arg; registro de auditoria (audit) em add/update. import faz INSERT em lote. Nenhum lançamento GL/SLE/PLE. |
-| **Pré-condições** | Empresa (company) deve existir; payment_terms_id, se informado, deve existir; tabelas company/account/item presentes (REQUIRED_TABLES). |
+| **Entradas** | --name (obrigatório); --company-id (obrigatório); --customer-type (default 'company', um de company\|individual); --customer-group; --payment-terms-id; --credit-limit (default 0); --tax-id; --exempt-from-sales-tax; --primary-address; --primary-contact; --email; --phone; --custom-fields (JSON). |
+| **Saídas** | customer_id, name, customer_type (mais quaisquer custom fields mesclados). |
+| **Regras** | Valida existência de company_id; valida customer_type contra company\|individual; valida payment_terms_id se informado; credit_limit normalizado para currency; falha de IntegrityError -> erro de duplicidade; rollback se erro de custom field. |
+| **Efeitos colaterais** | INSERT em customer (status='active'); persiste custom fields; audit_log via audit(); commit. |
+| **Pré-condições** | Empresa existente; payment_terms existente se informado. |
+
+### `update-customer`
+
+Atualiza campos de um cliente existente (resolvido por id ou name).
+
+| | |
+|---|---|
+| **Entradas** | --customer-id (obrigatório, aceita id ou name); campos opcionais: --name, --credit-limit, --payment-terms-id, --customer-group, --customer-type, --email, --phone. |
+| **Saídas** | customer_id, updated_fields (lista). |
+| **Regras** | Cliente deve existir; valida customer_type se informado; erro 'No fields to update' se nada fornecido; seta updated_at. |
+| **Efeitos colaterais** | UPDATE dynamic em customer; audit_log; commit. |
+| **Pré-condições** | Cliente existente. |
+
+### `get-customer`
+
+Retorna um cliente com resumo de faturas em aberto (outstanding).
+
+| | |
+|---|---|
+| **Entradas** | --customer-id (obrigatório, aceita id ou name). |
+| **Saídas** | Todos os campos do cliente + total_outstanding + outstanding_invoice_count (mais custom fields mesclados). |
+| **Regras** | Cliente deve existir; total_outstanding soma outstanding_amount de sales_invoice em status submitted/overdue/partially_paid com saldo>0. |
+| **Efeitos colaterais** | nenhum (leitura). |
+| **Pré-condições** | Cliente existente. |
+
+### `list-customers`
+
+Lista clientes com filtros e paginação.
+
+| | |
+|---|---|
+| **Entradas** | --company-id; --customer-group; --search (em name/tax_id); --limit (default 20); --offset (default 0). |
+| **Saídas** | customers (lista), total_count, limit, offset, has_more. |
+| **Regras** | Filtros opcionais combinados via AND; ordena por name; conta total separadamente. |
+| **Efeitos colaterais** | nenhum (leitura). |
+| **Pré-condições** | Nenhuma. |
+
+### `import-customers`
+
+Importa clientes em lote a partir de um arquivo CSV.
+
+| | |
+|---|---|
+| **Entradas** | --csv-path (obrigatório, deve terminar em .csv); --company-id (obrigatório). Colunas CSV: name, customer_type, territory, default_currency, email, phone, tax_id. |
+| **Saídas** | imported, skipped, total_rows. |
+| **Regras** | Valida que path é arquivo .csv real; valida CSV via validate_csv; pula linhas com name duplicado na empresa; gera naming_series para cada novo cliente. |
+| **Efeitos colaterais** | INSERT em customer por linha nova (com naming_series); commit. Não grava audit_log. |
+| **Pré-condições** | Arquivo CSV válido existente; empresa existente. |
 
 ## Cotações
 
-**Objetivo.** Criar e gerir cotações em rascunho, submetê-las (gerando naming series) e convertê-las em pedido de venda.
+**Objetivo.** Criar, editar, consultar, listar, submeter e converter cotações em pedidos de venda.
 
-**Ações:**
-- `add-quotation` — Cria cotação em 'draft' com itens, calcula total/imposto/grand_total; sem aplicar pricing rule.
-- `update-quotation` — Atualiza cotação 'draft': valid_until e/ou substitui itens (delete+insert), recalcula totais.
-- `get-quotation` — Retorna cabeçalho da cotação e seus itens com item_name.
-- `list-quotations` — Lista paginada com filtros por empresa, cliente, status e intervalo de datas.
-- `submit-quotation` — Transição draft->open; gera naming_series via get_next_name.
-- `convert-quotation-to-so` — Cria sales_order 'draft' a partir da cotação (open ou draft); marca cotação como 'ordered' e grava converted_to.
+### `add-quotation`
 
-| Campo | Detalhe |
+Cria uma cotação no status 'draft' com itens e impostos calculados.
+
+| | |
 |---|---|
-| **Entradas** | --customer-id, --posting-date, --items (JSON), --company-id, --tax-template-id, --valid-till; consultas/transições: --quotation-id, --delivery-date (na conversão). |
-| **Saídas** | quotation_id com total_amount/tax_amount/grand_total; submit retorna naming_series e status 'open'; convert retorna sales_order_id e status 'ordered'. |
-| **Regras de negócio** | Ciclo: draft -> open (submit) -> ordered (convert). update só em 'draft'; submit só de 'draft'; convert só de 'open'/'draft'. Itens validados por _calculate_line_items (qty>0, item existe); imposto por template (on_net_total, actual, on_previous_row_total/amount, on_item_quantity, add/deduct). |
-| **Efeitos colaterais** | INSERT/UPDATE/DELETE em quotation e quotation_item; convert cria sales_order + sales_order_item; auditoria em todas as ações. Nenhum GL/SLE/PLE. |
-| **Pré-condições** | Cliente ativo e empresa existentes; itens cadastrados; tax_template_id (se usado) configurado. |
+| **Entradas** | --customer-id (obrigatório); --posting-date (obrigatório); --items (obrigatório, JSON array); --company-id (obrigatório); --valid-till; --tax-template-id. |
+| **Saídas** | quotation_id, total_amount, tax_amount, grand_total. |
+| **Regras** | Cliente deve estar 'active'; empresa deve existir; cada item exige item_id, qty>0; aplica discount_percentage por linha; calcula imposto via tax template; status inicial 'draft' (sem naming_series). |
+| **Efeitos colaterais** | INSERT em quotation (status='draft') e quotation_item; audit_log; commit. |
+| **Pré-condições** | Cliente ativo e empresa existentes; itens válidos. |
+
+### `update-quotation`
+
+Atualiza valid_until e/ou itens de uma cotação em rascunho.
+
+| | |
+|---|---|
+| **Entradas** | --quotation-id (obrigatório); --valid-till; --items (JSON). |
+| **Saídas** | quotation_id, updated_fields. |
+| **Regras** | Cotação deve existir e estar 'draft'; se --items, deleta itens antigos e reinsere recalculando total/tax/grand_total; erro se nada a atualizar. |
+| **Efeitos colaterais** | UPDATE quotation; DELETE+INSERT quotation_item quando itens informados; audit_log; commit. |
+| **Pré-condições** | Cotação em status 'draft'. |
+
+### `get-quotation`
+
+Retorna uma cotação com suas linhas de item.
+
+| | |
+|---|---|
+| **Entradas** | --quotation-id (obrigatório). |
+| **Saídas** | Campos da quotation + items (lista com item_name). |
+| **Regras** | Cotação deve existir. |
+| **Efeitos colaterais** | nenhum (leitura). |
+| **Pré-condições** | Cotação existente. |
+
+### `list-quotations`
+
+Lista cotações com filtros e paginação.
+
+| | |
+|---|---|
+| **Entradas** | --company-id; --customer-id; --status; --from-date; --to-date; --limit (default 20); --offset (default 0). |
+| **Saídas** | quotations (lista, com customer_name), total_count, limit, offset, has_more. |
+| **Regras** | Filtros combinados por AND sobre quotation_date; ordena por quotation_date e created_at desc. |
+| **Efeitos colaterais** | nenhum (leitura). |
+| **Pré-condições** | Nenhuma. |
+
+### `submit-quotation`
+
+Submete uma cotação: draft -> open, gerando naming_series.
+
+| | |
+|---|---|
+| **Entradas** | --quotation-id (obrigatório). |
+| **Saídas** | quotation_id, naming_series, status ('open'). |
+| **Regras** | Cotação deve estar 'draft'; gera naming_series via get_next_name; sem postagens contábeis. |
+| **Efeitos colaterais** | UPDATE quotation (status='open', naming_series); audit_log; commit. |
+| **Pré-condições** | Cotação em status 'draft'. |
+
+### `convert-quotation-to-so`
+
+Cria um pedido de venda (draft) a partir de uma cotação e marca-a como 'ordered'.
+
+| | |
+|---|---|
+| **Entradas** | --quotation-id (obrigatório); --delivery-date. |
+| **Saídas** | quotation_id, sales_order_id, status ('ordered'). |
+| **Regras** | Cotação deve estar 'open' ou 'draft' e ter itens; copia itens para sales_order_item; SO criado em 'draft'; atualiza quotation.status='ordered' e converted_to. |
+| **Efeitos colaterais** | INSERT sales_order (status='draft') e sales_order_item; UPDATE quotation (status='ordered', converted_to); audit_log; commit. |
+| **Pré-condições** | Cotação em 'open'/'draft' com itens. |
 
 ## Pedidos de Venda
 
-**Objetivo.** Gerir o pedido de venda do rascunho à confirmação (com checagem de limite de crédito) e seu ciclo de vida (cancelar, fechar), incluindo acompanhamento de % entregue/faturado.
+**Objetivo.** Criar, editar, consultar, listar, confirmar, cancelar e fechar pedidos de venda com checagem de limite de crédito.
 
-**Ações:**
-- `add-sales-order` — Cria SO 'draft' com itens; aplica pricing rule (apply_pricing=True) e calcula totais/imposto.
-- `update-sales-order` — Atualiza SO 'draft': delivery_date e/ou itens (recalcula com pricing).
-- `get-sales-order` — Retorna SO com itens, notas de entrega não canceladas e faturas vinculadas.
-- `list-sales-orders` — Lista paginada com filtros por empresa, cliente, status e datas; mostra per_delivered/per_invoiced.
-- `submit-sales-order` — draft->confirmed; valida cliente ativo, itens com qty>0 e rate>0, e exposição de crédito vs credit_limit.
-- `cancel-sales-order` — Cancela SO se não houver DN/fatura ativa vinculada.
-- `close-sales-order` — Fecha SO parcialmente atendido (impede novos DN/faturas, preserva filhos); grava close_reason/closed_by.
+### `add-sales-order`
 
-| Campo | Detalhe |
+Cria um pedido de venda no status 'draft' (com aplicação de pricing rules).
+
+| | |
 |---|---|
-| **Entradas** | --customer-id, --posting-date, --items, --company-id, --tax-template-id, --delivery-date; transições: --sales-order-id, --reason, --closed-by. |
-| **Saídas** | sales_order_id com totais; submit retorna naming_series e status 'confirmed'; cancel/close retornam novo status. |
-| **Regras de negócio** | Ciclo: draft -> confirmed (submit) -> partially/fully_delivered, partially/fully_invoiced -> closed/cancelled. submit checa limite: exposição = AR em aberto + SOs 'confirmed' (exceto este) + grand_total deste <= credit_limit (se >0). cancel só sem DN/fatura ativa; close bloqueado para draft/cancelled/closed. |
-| **Efeitos colaterais** | INSERT/UPDATE/DELETE em sales_order e sales_order_item; submit/cancel/close apenas mudam status e geram auditoria. Nenhum GL/SLE/PLE (postagens ocorrem em DN e fatura). |
-| **Pré-condições** | Cliente ativo e empresa; itens válidos; pricing_rule e tax_template opcionais. Para submit, credit_limit configurado se quiser bloqueio. |
+| **Entradas** | --customer-id (obrigatório); --posting-date (obrigatório, vira order_date); --items (obrigatório, JSON); --company-id (obrigatório); --delivery-date; --tax-template-id. |
+| **Saídas** | sales_order_id, total_amount, tax_amount, grand_total. |
+| **Regras** | Cliente deve estar 'active'; empresa deve existir; aplica pricing rules (apply_pricing=True) por item; qty>0; calcula imposto; status inicial 'draft'. |
+| **Efeitos colaterais** | INSERT sales_order (status='draft') e sales_order_item; audit_log; commit. |
+| **Pré-condições** | Cliente ativo e empresa existentes. |
+
+### `update-sales-order`
+
+Atualiza delivery_date e/ou itens de um pedido em rascunho.
+
+| | |
+|---|---|
+| **Entradas** | --sales-order-id (obrigatório); --delivery-date; --items (JSON). |
+| **Saídas** | sales_order_id, updated_fields. |
+| **Regras** | SO deve existir e estar 'draft'; se --items, deleta e reinsere itens (com pricing) recalculando totais; erro se nada a atualizar. |
+| **Efeitos colaterais** | UPDATE sales_order; DELETE+INSERT sales_order_item quando itens informados; audit_log; commit. |
+| **Pré-condições** | Pedido em status 'draft'. |
+
+### `get-sales-order`
+
+Retorna um pedido com itens e resumo de entregas/faturas vinculadas.
+
+| | |
+|---|---|
+| **Entradas** | --sales-order-id (obrigatório). |
+| **Saídas** | Campos do SO + items + delivery_notes (não-cancelados) + sales_invoices (não-cancelados). |
+| **Regras** | SO deve existir. |
+| **Efeitos colaterais** | nenhum (leitura). |
+| **Pré-condições** | Pedido existente. |
+
+### `list-sales-orders`
+
+Lista pedidos de venda com filtros e paginação.
+
+| | |
+|---|---|
+| **Entradas** | --company-id; --customer-id; --status; --from-date; --to-date; --limit (default 20); --offset (default 0). |
+| **Saídas** | sales_orders (lista, com customer_name, per_delivered, per_invoiced), total_count, limit, offset, has_more. |
+| **Regras** | Filtros por AND sobre order_date; ordena por order_date/created_at desc. |
+| **Efeitos colaterais** | nenhum (leitura). |
+| **Pré-condições** | Nenhuma. |
+
+### `submit-sales-order`
+
+Confirma um pedido (draft -> confirmed) com checagem de limite de crédito.
+
+| | |
+|---|---|
+| **Entradas** | --sales-order-id (obrigatório). |
+| **Saídas** | sales_order_id, naming_series, status ('confirmed'). |
+| **Regras** | SO deve estar 'draft'; cliente deve estar 'active'; itens com qty>0 e rate>0; se credit_limit>0, exposição (outstanding AR + pedidos confirmed não-faturados + este grand_total) não pode exceder o limite, senão erro; gera naming_series. |
+| **Efeitos colaterais** | UPDATE sales_order (status='confirmed', naming_series); audit_log; commit. Sem GL/SLE/PLE. |
+| **Pré-condições** | Pedido em 'draft' com itens válidos; cliente ativo. |
+
+### `cancel-sales-order`
+
+Cancela um pedido somente se não houver entregas/faturas ativas vinculadas.
+
+| | |
+|---|---|
+| **Entradas** | --sales-order-id (obrigatório). |
+| **Saídas** | sales_order_id, status ('cancelled'). |
+| **Regras** | Erro se já cancelado; erro se houver delivery_note ou sales_invoice não-cancelados vinculados. |
+| **Efeitos colaterais** | UPDATE sales_order (status='cancelled'); audit_log; commit. |
+| **Pré-condições** | Pedido sem documentos-filhos ativos. |
+
+### `close-sales-order`
+
+Fecha um pedido parcialmente atendido, impedindo novas DNs/faturas mas preservando filhos existentes.
+
+| | |
+|---|---|
+| **Entradas** | --sales-order-id (obrigatório); --reason; --closed-by. |
+| **Saídas** | sales_order_id, doc_status ('closed'), close_reason, closed_by. |
+| **Regras** | Erro se status for draft/cancelled/closed; grava motivo e responsável. |
+| **Efeitos colaterais** | UPDATE sales_order (status='closed', close_reason, closed_by); audit_log; commit. |
+| **Pré-condições** | Pedido em status que não seja draft/cancelled/closed. |
 
 ## Emendas
 
-**Objetivo.** Emendar um pedido de venda confirmado criando uma nova versão (linkada via amended_from) e cancelando a original, além de rastrear toda a cadeia de emendas.
+**Objetivo.** Emendar pedidos de venda criando uma nova versão vinculada e rastrear a cadeia de emendas.
 
-**Ações:**
-- `amend-sales-order` — Cancela o SO original (só sem DN/fatura ativos) e cria novo SO 'draft' com amended_from; itens vêm de --items ou são copiados do original.
-- `get-amendment-history` — Reconstrói a cadeia de emendas (ancestrais via amended_from + descendentes) de um SO.
+### `amend-sales-order`
 
-| Campo | Detalhe |
+Cancela o pedido original (sem filhos ativos) e cria um novo SO 'draft' vinculado via amended_from.
+
+| | |
 |---|---|
-| **Entradas** | --sales-order-id; opcional --items (JSON com mudanças); get: --sales-order-id. |
-| **Saídas** | new_sales_order_id, amended_from, original_status='cancelled' e novos totais; history retorna amendment_chain[] e chain_length. |
-| **Regras de negócio** | Bloqueia emenda se SO está draft/cancelled/closed ou se houver qualquer DN ou fatura não cancelada vinculada. Novo SO recalcula com pricing rule e imposto; mantém customer/order_date/tax_template da original. |
-| **Efeitos colaterais** | UPDATE no SO original (status='cancelled') + INSERT de novo sales_order/sales_order_item; dois registros de auditoria (cancelamento e criação). Nenhum GL/SLE/PLE. get é somente leitura. |
-| **Pré-condições** | SO existente em status confirmado/parcial (não draft/cancelled/closed) e sem documentos filhos ativos. |
+| **Entradas** | --sales-order-id (obrigatório); --items (JSON opcional; se omitido, copia itens do original). |
+| **Saídas** | new_sales_order_id, amended_from, original_status ('cancelled'), total_amount, tax_amount, grand_total. |
+| **Regras** | SO não pode ser draft/cancelled/closed; bloqueia se houver delivery_note ou sales_invoice ativos; recalcula totais (com pricing) e impostos; novo SO em 'draft'. |
+| **Efeitos colaterais** | UPDATE sales_order original (status='cancelled'); INSERT novo sales_order (amended_from) e sales_order_item; dois audit_log (cancelamento e criação); commit. |
+| **Pré-condições** | Pedido amendável sem documentos-filhos ativos. |
+
+### `get-amendment-history`
+
+Rastreia a cadeia completa de emendas de um pedido (ancestrais e descendentes).
+
+| | |
+|---|---|
+| **Entradas** | --sales-order-id (obrigatório). |
+| **Saídas** | sales_order_id, amendment_chain (lista de {sales_order_id, status, amended_from, grand_total}), chain_length. |
+| **Regras** | SO deve existir; caminha para trás via amended_from até a raiz e para frente via descendentes. |
+| **Efeitos colaterais** | nenhum (leitura). |
+| **Pré-condições** | Pedido existente. |
 
 ## Notas de Entrega
 
-**Objetivo.** Emitir notas de entrega (totais ou parciais) a partir do pedido de venda e, na submissão, baixar estoque e lançar COGS; cancelar reverte os lançamentos.
+**Objetivo.** Criar, consultar, listar, submeter (com postagens de estoque/COGS) e cancelar notas de entrega.
 
-**Ações:**
-- `create-delivery-note` — Cria DN 'draft' do SO (confirmed/partially_delivered); entrega total (itens não entregues) ou parcial por --items, validando qty <= remanescente.
-- `get-delivery-note` — Retorna DN com itens (item_name/item_code).
-- `list-delivery-notes` — Lista paginada com filtros por empresa, cliente, status e datas.
-- `submit-delivery-note` — draft->submitted; gera SLE de saída (qty negativa) e GL de COGS via inventário perpétuo; atualiza delivered_qty e status do SO.
-- `cancel-delivery-note` — submitted->cancelled; reverte SLE e GL e devolve delivered_qty ao SO (se não houver fatura vinculada).
+### `create-delivery-note`
 
-| Campo | Detalhe |
+Cria uma nota de entrega (draft) a partir de um pedido de venda, total ou parcial.
+
+| | |
 |---|---|
-| **Entradas** | --sales-order-id, --posting-date, --items (parcial: item_id/sales_order_item_id, qty, warehouse_id, batch_id, serial_numbers), --warehouse-id (override); get/submit/cancel: --delivery-note-id. |
-| **Saídas** | delivery_note_id, total_qty, item_count; submit retorna naming_series, sle_entries_created, gl_entries_created; cancel retorna contagem de reversões. |
-| **Regras de negócio** | Ciclo: draft -> submitted -> cancelled. Itens de serviço são pulados no SLE. Exige warehouse (do item ou default da empresa) e o tipo deve ser 'stores' para despacho. Atualiza per_delivered do SO (fully/partially_delivered). cancel bloqueado se houver fatura ativa referenciando a DN. |
-| **Efeitos colaterais** | submit: INSERT em stock_ledger_entry (saída), gl_entry de COGS (create_perpetual_inventory_gl), UPDATE serial_number para 'delivered', UPDATE delivered_qty/per_delivered/status do SO. cancel: reverse_sle_entries + reverse_gl_entries e devolução de delivered_qty (mínimo 0). Auditoria em ambas. |
-| **Pré-condições** | SO confirmado/parcialmente entregue; armazém tipo 'stores' válido; ano fiscal aberto e cost center da empresa; conta COGS e conta de estoque configuradas. |
+| **Entradas** | --sales-order-id (obrigatório); --posting-date (default hoje); --items (JSON para entrega parcial; omitido = entrega tudo pendente); --warehouse-id (override para todos os itens). |
+| **Saídas** | delivery_note_id, sales_order_id, total_qty, item_count. |
+| **Regras** | SO deve estar 'confirmed' ou 'partially_delivered' (erro se 'closed'); em parcial, qty>0 e <= remaining por item; erro se nada a entregar; DN criada em 'draft'. |
+| **Efeitos colaterais** | INSERT delivery_note (status='draft') e delivery_note_item; audit_log; commit. Sem postagens contábeis ainda. |
+| **Pré-condições** | Pedido confirmado/parcialmente entregue com saldo a entregar. |
+
+### `get-delivery-note`
+
+Retorna uma nota de entrega com seus itens.
+
+| | |
+|---|---|
+| **Entradas** | --delivery-note-id (obrigatório). |
+| **Saídas** | Campos da DN + items (com item_name, item_code). |
+| **Regras** | DN deve existir. |
+| **Efeitos colaterais** | nenhum (leitura). |
+| **Pré-condições** | Nota de entrega existente. |
+
+### `list-delivery-notes`
+
+Lista notas de entrega com filtros e paginação.
+
+| | |
+|---|---|
+| **Entradas** | --company-id; --customer-id; --status; --from-date; --to-date; --limit (default 20); --offset (default 0). |
+| **Saídas** | delivery_notes (lista, com customer_name, total_qty), total_count, limit, offset, has_more. |
+| **Regras** | Filtros por AND sobre posting_date; ordena por posting_date/created_at desc. |
+| **Efeitos colaterais** | nenhum (leitura). |
+| **Pré-condições** | Nenhuma. |
+
+### `submit-delivery-note`
+
+Submete uma DN: cria SLE (saída de estoque) e GL de COGS, atualizando o SO.
+
+| | |
+|---|---|
+| **Entradas** | --delivery-note-id (obrigatório). |
+| **Saídas** | delivery_note_id, naming_series, status ('submitted'), sle_entries_created, gl_entries_created. |
+| **Regras** | DN deve estar 'draft'; SO vinculado não pode estar cancelado; itens de serviço são pulados; resolve warehouse (item/default da empresa); só permite despachar de warehouse tipo 'stores'; gera SLE negativos e GL de COGS via lib; atualiza delivered_qty e status do SO. |
+| **Efeitos colaterais** | INSERT stock_ledger_entry (negativos) e gl_entry (COGS); UPDATE serial_number p/ 'delivered'; UPDATE delivery_note (status='submitted', naming_series); UPDATE sales_order_item.delivered_qty e recálculo de per_delivered/status do SO; audit_log; commit. |
+| **Pré-condições** | DN em 'draft' com itens; warehouse 'stores' válido; SO não cancelado. |
+
+### `cancel-delivery-note`
+
+Cancela uma DN submetida: reverte SLE + GL e reverte delivered_qty do SO.
+
+| | |
+|---|---|
+| **Entradas** | --delivery-note-id (obrigatório). |
+| **Saídas** | delivery_note_id, status ('cancelled'), sle_reversals, gl_reversals. |
+| **Regras** | DN deve estar 'submitted'; erro se houver faturas ativas referenciando a DN; reverte SLE e GL via lib; recalcula status do SO (pode voltar a 'confirmed'). |
+| **Efeitos colaterais** | INSERT entradas reversoras em stock_ledger_entry e gl_entry; UPDATE delivery_note (status='cancelled'); decrementa sales_order_item.delivered_qty (mínimo 0) e recalcula status do SO; audit_log; commit. |
+| **Pré-condições** | DN 'submitted' sem faturas ativas vinculadas. |
 
 ## Faturas de Venda
 
-**Objetivo.** Criar faturas de venda (a partir de SO, DN ou avulsa), submetê-las gerando receita/AR/imposto no GL e PLE (e SLE/COGS opcional quando update_stock), e cancelá-las revertendo tudo.
+**Objetivo.** Criar (de SO/DN/avulsa), editar, consultar, listar, submeter (com GL/PLE/SLE), cancelar e atualizar saldo de faturas de venda.
 
-**Ações:**
-- `create-sales-invoice` — Cria fatura 'draft' do SO (itens não faturados), da DN (update_stock=0) ou avulsa; calcula imposto, due_date por payment_terms (ou +30 dias).
-- `update-sales-invoice` — Atualiza fatura 'draft': due_date e/ou itens (recalcula totais e outstanding).
-- `get-sales-invoice` — Retorna fatura com itens e payment_ledger_entry vinculados (sales_invoice e credit_note).
-- `list-sales-invoices` — Lista paginada com filtros por empresa, cliente, status e datas; mostra outstanding e is_return.
-- `submit-sales-invoice` — draft->submitted; gera GL (DR AR / CR Receita / CR Imposto), PLE, e SLE+COGS se update_stock; atualiza invoiced_qty/status do SO.
-- `cancel-sales-invoice` — submitted/overdue/partially_paid -> cancelled; reverte GL, PLE (delinked) e SLE; zera outstanding e devolve invoiced_qty do SO.
-- `update-invoice-outstanding` — Hook chamado por erpclaw-payments para abater pagamento via lib payment_clearing (rejeita over-payment).
+### `create-sales-invoice`
 
-| Campo | Detalhe |
+Cria uma fatura de venda (draft) a partir de SO, DN ou avulsa.
+
+| | |
 |---|---|
-| **Entradas** | --customer-id, --company-id, --items, --tax-template-id, --posting-date, --due-date, --sales-order-id, --delivery-note-id, --payment-terms-id; transições: --sales-invoice-id; pagamento: --amount. |
-| **Saídas** | sales_invoice_id com totais, outstanding e update_stock; submit retorna naming_series, gl/sle_entries_created; update-outstanding retorna novo outstanding_amount e status. |
-| **Regras de negócio** | Ciclo: draft -> submitted -> partially_paid/overdue/paid/cancelled. update_stock=1 por padrão (perpétuo US), 0 quando vem de DN ou SO já entregue. submit valida cliente ativo e aplica política de crédito (_enforce_credit_policy: bloqueia suspended/on_hold e excede credit_limit). Origem SO fatura só itens com remaining>0. update só em draft. cancel só de submitted/overdue/partially_paid. |
-| **Efeitos colaterais** | submit: gl_entry (receita/AR/imposto, party=customer), payment_ledger_entry, e quando update_stock SLE de saída + gl_entry de COGS (entry_set='cogs'); UPDATE invoiced_qty/per_invoiced/status do SO. cancel: reverse_gl/sle, PLE delinked=1, status cancelled, devolução invoiced_qty. update-outstanding: UPDATE outstanding/status via lib. Auditoria em todas. |
-| **Pré-condições** | Cliente ativo; contas de recebível, receita e imposto da empresa; ano fiscal aberto, cost center; conta COGS/estoque e armazém se update_stock; payment_terms para due_date. |
+| **Entradas** | --sales-order-id OU --delivery-note-id OU (avulsa: --customer-id + --items + --company-id); --posting-date (default hoje); --tax-template-id; --due-date; --payment-terms-id. |
+| **Saídas** | sales_invoice_id, total_amount, tax_amount, grand_total, update_stock. |
+| **Regras** | De SO: status valido (confirmed/partially_delivered/fully_delivered/partially_invoiced), só itens não-faturados; se SO tem DN submetida, update_stock=0. De DN: DN deve estar 'submitted', update_stock=0. Avulsa: cliente ativo, itens válidos, update_stock=1 (default). Calcula due_date por payment terms ou +30 dias. |
+| **Efeitos colaterais** | INSERT sales_invoice (status='draft', outstanding=grand_total) e sales_invoice_item; audit_log; commit. Sem GL/PLE ainda. |
+| **Pré-condições** | SO/DN em status válido, ou cliente ativo para avulsa. |
+
+### `update-sales-invoice`
+
+Atualiza due_date e/ou itens de uma fatura em rascunho.
+
+| | |
+|---|---|
+| **Entradas** | --sales-invoice-id (obrigatório); --due-date; --items (JSON). |
+| **Saídas** | sales_invoice_id, updated_fields. |
+| **Regras** | Fatura deve existir e estar 'draft'; se --items, deleta e reinsere itens recalculando total/tax/grand_total/outstanding; erro se nada a atualizar. |
+| **Efeitos colaterais** | UPDATE sales_invoice; DELETE+INSERT sales_invoice_item quando itens informados; audit_log; commit. |
+| **Pré-condições** | Fatura em status 'draft'. |
+
+### `get-sales-invoice`
+
+Retorna uma fatura com itens e lançamentos de pagamento (PLE).
+
+| | |
+|---|---|
+| **Entradas** | --sales-invoice-id (obrigatório). |
+| **Saídas** | Campos da fatura + items + payments (PLE de tipo sales_invoice/credit_note). |
+| **Regras** | Fatura deve existir. |
+| **Efeitos colaterais** | nenhum (leitura). |
+| **Pré-condições** | Fatura existente. |
+
+### `list-sales-invoices`
+
+Lista faturas de venda com filtros e paginação.
+
+| | |
+|---|---|
+| **Entradas** | --company-id; --customer-id; --status; --from-date; --to-date; --limit (default 20); --offset (default 0). |
+| **Saídas** | sales_invoices (lista, com customer_name, outstanding_amount, is_return), total_count, limit, offset, has_more. |
+| **Regras** | Filtros por AND sobre posting_date; ordena por posting_date/created_at desc. |
+| **Efeitos colaterais** | nenhum (leitura). |
+| **Pré-condições** | Nenhuma. |
+
+### `submit-sales-invoice`
+
+Submete uma fatura: posta GL de receita + PLE (e opcionalmente SLE/COGS se update_stock).
+
+| | |
+|---|---|
+| **Entradas** | --sales-invoice-id (obrigatório). |
+| **Saídas** | sales_invoice_id, naming_series, status ('submitted'), gl_entries_created, sle_entries_created, update_stock. |
+| **Regras** | Fatura deve estar 'draft'; cliente deve estar 'active'; aplica política de crédito (_enforce_credit_policy: bloqueia suspended/on_hold e excesso de credit_limit); DR Receivable / CR Receita / CR Imposto (invertido para credit_note); se update_stock cria SLE e GL de COGS; gera naming_series; atualiza invoiced_qty/status do SO. |
+| **Efeitos colaterais** | INSERT gl_entry (receita + COGS), payment_ledger_entry, e stock_ledger_entry se update_stock; UPDATE sales_invoice (status='submitted', naming_series); UPDATE sales_order_item.invoiced_qty e status do SO; audit_log; commit. |
+| **Pré-condições** | Fatura em 'draft' com itens; cliente ativo dentro da política de crédito; contas receivable/income configuradas. |
+
+### `cancel-sales-invoice`
+
+Cancela uma fatura: reverte GL + PLE (e SLE se update_stock).
+
+| | |
+|---|---|
+| **Entradas** | --sales-invoice-id (obrigatório). |
+| **Saídas** | sales_invoice_id, status ('cancelled'), gl_reversals, sle_reversals. |
+| **Regras** | Fatura deve estar 'submitted', 'overdue' ou 'partially_paid'; reverte GL (incl. COGS) e SLE via lib; marca PLE como delinked; zera outstanding; reverte invoiced_qty do SO. |
+| **Efeitos colaterais** | INSERT entradas reversoras em gl_entry e stock_ledger_entry; UPDATE payment_ledger_entry (delinked=1); UPDATE sales_invoice (status='cancelled', outstanding=0); decrementa sales_order_item.invoiced_qty e recalcula status do SO; audit_log; commit. |
+| **Pré-condições** | Fatura em status submitted/overdue/partially_paid. |
+
+### `update-invoice-outstanding`
+
+Atualiza o saldo em aberto de uma fatura quando um pagamento é alocado (chamado por erpclaw-payments).
+
+| | |
+|---|---|
+| **Entradas** | --sales-invoice-id (obrigatório); --amount (obrigatório, >0). |
+| **Saídas** | sales_invoice_id, outstanding_amount, status. |
+| **Regras** | Fatura deve estar submitted/overdue/partially_paid; amount>0; delega cálculo/escrita à lib payment_clearing.apply_payment_to_document (rejeita over-payment). |
+| **Efeitos colaterais** | UPDATE sales_invoice (outstanding_amount e status via lib compartilhada); audit_log; commit. |
+| **Pré-condições** | Fatura clearable (submitted/overdue/partially_paid). |
 
 ## Notas de Crédito/Estorno
 
-**Objetivo.** Emitir notas de crédito (devolução) contra uma fatura submetida, gravadas como sales_invoice com is_return=1 e valores negativos, que revertem AR/receita ao serem submetidas.
+**Objetivo.** Criar e listar notas de crédito (faturas de devolução com valores negativos) contra faturas originais.
 
-**Ações:**
-- `create-credit-note` — Cria nota de crédito 'draft' (is_return=1, return_against=fatura) com itens validados contra a fatura original e quantidades/valores negativos.
-- `list-credit-notes` — Lista faturas com is_return=1, com nome da fatura original (return_against_name).
+### `create-credit-note`
 
-| Campo | Detalhe |
+Cria uma nota de crédito (fatura is_return=1, valores negativos) contra uma fatura original.
+
+| | |
 |---|---|
-| **Entradas** | --against-invoice-id, --items (JSON: item_id, qty, rate opcional), --posting-date, --reason; list: --company-id, --customer-id, --status, datas. |
-| **Saídas** | credit_note_id, against_invoice_id, grand_total (negativo) e is_return=true; list retorna credit_notes[] com totais. |
-| **Regras de negócio** | Fatura original deve estar submitted/overdue/partially_paid/paid. Cada item deve existir na fatura original e qty de devolução <= qty original. Totais e imposto são negados. A submissão/cancelamento usa as MESMAS ações de fatura (submit/cancel-sales-invoice) com voucher_type 'credit_note' (DR/CR invertidos). |
-| **Efeitos colaterais** | create: INSERT em sales_invoice (is_return=1) e sales_invoice_item com valores negativos; auditoria. Postagens reais (GL CR AR/DR Receita, PLE negativa, SLE de entrada/devolução) ocorrem no submit-sales-invoice. list é somente leitura. |
-| **Pré-condições** | Fatura original existente e submetida (não draft/cancelled); itens correspondentes à fatura original; demais pré-condições de fatura para a submissão. |
+| **Entradas** | --against-invoice-id (obrigatório); --items (obrigatório, JSON); --posting-date (default hoje); --reason. |
+| **Saídas** | credit_note_id, against_invoice_id, grand_total, is_return (True). |
+| **Regras** | Fatura original deve estar submitted/overdue/partially_paid/paid; cada item deve existir na fatura original e qty de retorno <= qty original; quantidades/valores armazenados negativos; nota de crédito criada em 'draft' com return_against. |
+| **Efeitos colaterais** | INSERT sales_invoice (is_return=1, status='draft', return_against) e sales_invoice_item (negativos); audit_log; commit. Postagens contábeis só no submit-sales-invoice. |
+| **Pré-condições** | Fatura original em status válido com itens correspondentes. |
+
+### `list-credit-notes`
+
+Lista notas de crédito (faturas com is_return=1) com filtros e paginação.
+
+| | |
+|---|---|
+| **Entradas** | --company-id; --customer-id; --status; --from-date; --to-date; --limit (default 20); --offset (default 0). |
+| **Saídas** | credit_notes (lista, com customer_name e return_against_name), total_count, limit, offset, has_more. |
+| **Regras** | Sempre filtra is_return=1; demais filtros por AND sobre posting_date. |
+| **Efeitos colaterais** | nenhum (leitura). |
+| **Pré-condições** | Nenhuma. |
 
 ## Crédito e Cobrança (Dunning)
 
-**Objetivo.** Gerir política de crédito do cliente (limite, hold/suspend) e executar ciclos de cobrança escalonada (dunning) sobre faturas vencidas, com ações de email/hold/call/suspend.
+**Objetivo.** Gerir limite/status de crédito do cliente e executar ciclos de cobrança escalonada (dunning).
 
-**Ações:**
-- `check-credit-limit` — Calcula crédito disponível: credit_limit - AR em aberto (faturas submitted, is_return=0); somente leitura.
-- `place-customer-on-hold` — Define customer.credit_status (active|on_hold|suspended); grava auditoria com valor anterior.
-- `add-dunning-level` — Configura nível de escalonamento (1-10): dias de atraso + ação (email|hold|call|suspend) + template.
-- `run-dunning-cycle` — Acha faturas vencidas, casa cada cliente ao maior nível aplicável, aplica ação; para 'email' enfileira envio via erpclaw-alerts pós-commit. Idempotente por (cliente, nível, dia).
-- `list-dunning-runs` — Lista histórico de dunning_run por cliente/empresa.
+### `check-credit-limit`
 
-| Campo | Detalhe |
+Calcula o crédito disponível de um cliente (somente leitura).
+
+| | |
 |---|---|
-| **Entradas** | --customer-id, --credit-status, --reason; níveis: --company-id, --level, --days-overdue, --dunning-action, --template-id, --description; ciclo: --company-id, --run-date. |
-| **Saídas** | check retorna credit_limit, outstanding_ar, available_credit, credit_status, limit_enforced; cycle retorna customers_processed, runs_created, actions{}, emails{sent,skipped}, run_ids. |
-| **Regras de negócio** | credit_status: suspended/on_hold bloqueiam novas faturas (em submit-sales-invoice). Nível exige level 1-10, days_overdue>=0, ação válida. No ciclo, maior days_overdue<=days_late vence; pula se já existe run (cliente,nível) no dia; email sem template ou sem email do cliente é skip-with-note (não falha). |
-| **Efeitos colaterais** | place-on-hold/run-cycle: UPDATE customer.credit_status (hold/suspend); add-level: INSERT dunning_level; run: INSERT dunning_run (status completed) e, pós-commit, subprocess para erpclaw-alerts send-email gravando generated_email_id. Auditoria em place/add. check/list somente leitura. Sem GL/SLE/PLE. |
-| **Pré-condições** | Empresa existente; níveis de dunning configurados para o ciclo; faturas submetidas vencidas com outstanding>0; erpclaw-alerts instalado e template para envio de email. |
+| **Entradas** | --customer-id (obrigatório). |
+| **Saídas** | customer_id, name, credit_limit, credit_status, outstanding_ar, available_credit, limit_enforced. |
+| **Regras** | Cliente deve existir; outstanding_ar soma outstanding_amount de faturas submitted is_return=0; available_credit = limit - outstanding se limit>0, senão None. |
+| **Efeitos colaterais** | nenhum (leitura). |
+| **Pré-condições** | Cliente existente. |
+
+### `place-customer-on-hold`
+
+Define o credit_status do cliente para on_hold/suspended (ou active para liberar).
+
+| | |
+|---|---|
+| **Entradas** | --customer-id (obrigatório); --credit-status (default 'on_hold', um de active\|on_hold\|suspended); --reason. |
+| **Saídas** | customer_id, credit_status (novo), previous. |
+| **Regras** | Cliente deve existir; valida credit_status; preserva valor anterior para auditoria. |
+| **Efeitos colaterais** | UPDATE customer (credit_status, updated_at); commit; audit_log com old/new values e descrição (reason). |
+| **Pré-condições** | Cliente existente. |
+
+### `add-dunning-level`
+
+Configura um nível de escalonamento de cobrança (ação a tomar em N dias de atraso).
+
+| | |
+|---|---|
+| **Entradas** | --company-id (obrigatório); --level (obrigatório, inteiro 1-10); --days-overdue (obrigatório, >=0); --dunning-action (obrigatório, um de email\|hold\|call\|suspend); --template-id; --description. |
+| **Saídas** | id, company_id, level, days_overdue, action. |
+| **Regras** | Valida faixa de level e days_overdue; valida dunning-action; IntegrityError -> nível duplicado para a empresa. |
+| **Efeitos colaterais** | INSERT dunning_level; commit; audit_log. |
+| **Pré-condições** | Empresa existente. |
+
+### `run-dunning-cycle`
+
+Encontra faturas vencidas, casa cada cliente ao maior nível aplicável e executa a ação configurada (incl. enfileirar e-mail).
+
+| | |
+|---|---|
+| **Entradas** | --company-id (obrigatório); --run-date (default hoje); --db-path (para subprocess de e-mail). |
+| **Saídas** | run_date, company_id, customers_processed, runs_created, actions (contagem por tipo), emails (sent/skipped), run_ids. |
+| **Regras** | Sem níveis configurados retorna mensagem; busca faturas submitted is_return=0 com outstanding>0 e due_date<hoje; maior nível por cliente vence; idempotente por (cliente, nível, dia) - pula duplicatas; 'hold'/'suspend' alteram credit_status; 'call' apenas registra; 'email' enfileira após o commit via ACTION send-email do erpclaw-alerts; e-mail/template ausente é skip-with-note. |
+| **Efeitos colaterais** | INSERT dunning_run (status='completed'); UPDATE customer.credit_status para hold/suspend; subprocess para erpclaw-alerts send-email (escreve outbox no módulo de alertas); UPDATE dunning_run.generated_email_id/notes; audit não emitido aqui; dois commits (run e pós-e-mail). |
+| **Pré-condições** | Empresa com níveis de dunning configurados; erpclaw-alerts disponível para envios de e-mail. |
+
+### `list-dunning-runs`
+
+Lista o histórico de execuções de dunning, opcionalmente filtrado por cliente/empresa.
+
+| | |
+|---|---|
+| **Entradas** | --customer-id; --company-id; --limit. |
+| **Saídas** | runs (lista de dunning_run). |
+| **Regras** | Filtros opcionais combinados; ordena por run_date e created_at desc. |
+| **Efeitos colaterais** | nenhum (leitura). |
+| **Pré-condições** | Nenhuma. |
 
 ## Parceiros de Venda
 
-**Objetivo.** Cadastrar parceiros de venda (representantes) com taxa de comissão, para uso/listagem no domínio de vendas.
+**Objetivo.** Cadastrar e listar parceiros de venda com taxa de comissão.
 
-**Ações:**
-- `add-sales-partner` — Cria parceiro de venda com name e commission_rate (arredondada).
-- `list-sales-partners` — Lista paginada de parceiros ordenada por nome.
+### `add-sales-partner`
 
-| Campo | Detalhe |
+Cria um parceiro de venda com taxa de comissão.
+
+| | |
 |---|---|
-| **Entradas** | --name, --commission-rate; list: --limit, --offset. |
-| **Saídas** | sales_partner_id, name, commission_rate; list retorna sales_partners[], total_count, has_more. |
-| **Regras de negócio** | name e commission_rate obrigatórios; commission_rate convertida para decimal e arredondada. Falha de integridade (duplicado) gera erro amigável. |
-| **Efeitos colaterais** | INSERT em sales_partner; auditoria em add. list somente leitura. Nenhum GL/SLE/PLE; nenhum cálculo automático de comissão no código. |
-| **Pré-condições** | Nenhuma além das tabelas base (não valida empresa). |
+| **Entradas** | --name (obrigatório); --commission-rate (obrigatório). |
+| **Saídas** | sales_partner_id, name, commission_rate. |
+| **Regras** | Nome e commission-rate obrigatórios; rate normalizado para currency; IntegrityError -> erro de duplicidade. |
+| **Efeitos colaterais** | INSERT sales_partner; audit_log; commit. |
+| **Pré-condições** | Nenhuma. |
+
+### `list-sales-partners`
+
+Lista parceiros de venda com paginação.
+
+| | |
+|---|---|
+| **Entradas** | --limit (default 20); --offset (default 0). |
+| **Saídas** | sales_partners (lista), total_count, limit, offset, has_more. |
+| **Regras** | Ordena por name; conta total separadamente. |
+| **Efeitos colaterais** | nenhum (leitura). |
+| **Pré-condições** | Nenhuma. |
 
 ## Faturas Recorrentes
 
-**Objetivo.** Definir templates de faturamento recorrente por cliente/frequência e gerar automaticamente (via cron) faturas submetidas nas datas devidas, avançando a próxima data.
+**Objetivo.** Criar, editar, listar templates de fatura recorrente e gerar automaticamente faturas das templates vencidas.
 
-**Ações:**
-- `add-recurring-template` — Cria template 'draft' com cliente, frequência, start/end_date, itens e tax_template; next_invoice_date=start_date.
-- `update-recurring-template` — Atualiza frequência, status (active|paused|cancelled) e/ou itens do template.
-- `list-recurring-templates` — Lista templates por empresa/cliente/status ordenados por próxima data.
-- `generate-recurring-invoices` — Cron: para templates 'active' com next_invoice_date<=as_of_date, cria e auto-submete a fatura, posta GL+PLE e avança datas.
+### `add-recurring-template`
 
-| Campo | Detalhe |
+Cria uma template de fatura recorrente no status 'draft'.
+
+| | |
 |---|---|
-| **Entradas** | --customer-id, --items, --frequency (weekly\|monthly\|quarterly\|semi_annually\|annually), --start-date, --end-date, --company-id, --tax-template-id, --payment-terms-id; update: --template-id, --template-status; gerar: --company-id, --as-of-date. |
-| **Saídas** | template_id, frequency, next_invoice_date; generate retorna invoices_generated, templates_processed/completed, invoices[] e errors[]. |
-| **Regras de negócio** | frequency restrita ao conjunto válido; template status active/paused/cancelled (só 'active' gera). generate só processa não-vencido por end_date; calcula due_date = data+30; avança next_invoice_date por _next_invoice_date (clamp de fim de mês) e marca 'completed' quando ultrapassa end_date. Erros por template são coletados sem abortar o lote (rollback parcial em falha de GL). |
-| **Efeitos colaterais** | add/update: INSERT/UPDATE/DELETE em recurring_invoice_template(_item); auditoria. generate: cria sales_invoice+itens (status submitted, update_stock=0), gl_entry (AR/receita/imposto), payment_ledger_entry, gera naming e UPDATE de last/next_invoice_date e status do template. Sem SLE (update_stock=0). |
-| **Pré-condições** | Cliente ativo e empresa; itens válidos; contas de recebível/receita configuradas para postagem na geração; ano fiscal e cost center para o GL. |
+| **Entradas** | --customer-id (obrigatório); --items (obrigatório, JSON); --frequency (obrigatório, um de weekly\|monthly\|quarterly\|semi_annually\|annually); --start-date (obrigatório); --company-id (obrigatório); --end-date; --tax-template-id; --payment-terms-id. |
+| **Saídas** | template_id, frequency, start_date, next_invoice_date (=start_date). |
+| **Regras** | Valida frequency; cliente deve estar 'active'; empresa deve existir; itens não-vazios com item_id; next_invoice_date inicial = start_date. |
+| **Efeitos colaterais** | INSERT recurring_invoice_template (status='draft') e recurring_invoice_template_item; audit_log; commit. |
+| **Pré-condições** | Cliente ativo e empresa existentes. |
+
+### `update-recurring-template`
+
+Atualiza frequency, status e/ou itens de uma template recorrente.
+
+| | |
+|---|---|
+| **Entradas** | --template-id (obrigatório); --frequency; --template-status (active\|paused\|cancelled via --status? na verdade dest template_status); --items (JSON). |
+| **Saídas** | template_id, updated_fields. |
+| **Regras** | Template deve existir; valida frequency e template_status; se --items deleta e reinsere; erro se nada a atualizar. |
+| **Efeitos colaterais** | UPDATE recurring_invoice_template; DELETE+INSERT recurring_invoice_template_item quando itens informados; audit_log; commit. |
+| **Pré-condições** | Template existente. |
+
+### `list-recurring-templates`
+
+Lista templates de fatura recorrente com filtros e paginação.
+
+| | |
+|---|---|
+| **Entradas** | --company-id; --customer-id; --template-status; --limit (default 20); --offset (default 0). |
+| **Saídas** | recurring_templates (lista), total_count, limit, offset, has_more. |
+| **Regras** | Filtros por AND; ordena por next_invoice_date. |
+| **Efeitos colaterais** | nenhum (leitura). |
+| **Pré-condições** | Nenhuma. |
+
+### `generate-recurring-invoices`
+
+Cron: gera e auto-submete faturas das templates ativas vencidas até a data de referência.
+
+| | |
+|---|---|
+| **Entradas** | --company-id (obrigatório); --as-of-date (default hoje). |
+| **Saídas** | invoices_generated (contagem), templates_processed, templates_completed, invoices (lista), errors (lista). |
+| **Regras** | Seleciona templates status='active', next_invoice_date<=as_of_date e não expiradas; por template cria fatura draft, posta GL+PLE, gera naming, marca submitted; avança next_invoice_date conforme frequency; marca 'completed' se passar end_date; erros por template não abortam o lote (rollback isolado). |
+| **Efeitos colaterais** | INSERT sales_invoice (status='submitted', update_stock=0) e sales_invoice_item; INSERT gl_entry (receita+imposto) e payment_ledger_entry; UPDATE recurring_invoice_template (last/next_invoice_date, possivelmente status='completed'); commit. Não grava audit_log. |
+| **Pré-condições** | Empresa existente com templates ativos vencidos. |
 
 ## Blanket Orders
 
-**Objetivo.** Gerir acordos-quadro de venda (blanket order) com quantidades/valores acordados por período e gerar pedidos de venda que consomem (drawdown) o saldo do acordo.
+**Objetivo.** Criar, ativar, consultar, listar acordos-quadro (blanket orders) de venda e gerar pedidos com drawdown contra eles.
 
-**Ações:**
-- `add-blanket-order` — Cria blanket order 'draft' (type 'selling') com validade e itens (qty>0, rate>0); calcula total_qty.
-- `submit-blanket-order` — draft->active; valida tipo 'selling'.
-- `get-blanket-order` — Retorna o acordo e seus itens.
-- `list-blanket-orders` — Lista acordos do tipo 'selling' com filtros por empresa/cliente/status.
-- `create-so-from-blanket` — Cria SO 'draft' consumindo o acordo 'active' (não expirado), validando qty<=remanescente; atualiza ordered_qty.
+### `add-blanket-order`
 
-| Campo | Detalhe |
+Cria um blanket order de venda (acordo-quadro) no status 'draft'.
+
+| | |
 |---|---|
-| **Entradas** | --customer-id, --items, --company-id, --valid-from, --valid-to; transições/uso: --blanket-order-id, --tax-template-id, --posting-date, --delivery-date. |
-| **Saídas** | blanket_order_id, total_qty, validade; create-so retorna sales_order_id, total_amount, grand_total. |
-| **Regras de negócio** | valid_to deve ser > valid_from; itens exigem qty>0 e rate>0. Ciclo: draft -> active (submit). create-so só de acordo 'active' e dentro da validade (valid_to>=hoje), com qty solicitada <= (quantity - ordered_qty) por item; recalcula ordered_qty total via decimal_sum. |
-| **Efeitos colaterais** | INSERT/UPDATE em blanket_order(_item); create-so cria sales_order+itens e atualiza ordered_qty do item e do acordo. Auditoria em add/submit/create-so. Nenhum GL/SLE/PLE. |
-| **Pré-condições** | Cliente ativo e empresa; itens válidos; acordo ativo e vigente para gerar SO. |
+| **Entradas** | --customer-id (obrigatório); --items (obrigatório, JSON); --company-id (obrigatório); --valid-from (obrigatório); --valid-to (obrigatório). |
+| **Saídas** | blanket_order_id, customer_id, total_qty, valid_from, valid_to. |
+| **Regras** | Cliente deve estar 'active'; empresa deve existir; valid_to deve ser posterior a valid_from; cada item exige qty>0 e rate>0; blanket_order_type='selling'. |
+| **Efeitos colaterais** | INSERT blanket_order (type='selling', status='draft') e blanket_order_item; UPDATE blanket_order.total_qty; audit_log; commit. |
+| **Pré-condições** | Cliente ativo e empresa existentes. |
+
+### `submit-blanket-order`
+
+Ativa um blanket order de venda (draft -> active).
+
+| | |
+|---|---|
+| **Entradas** | --blanket-order-id (obrigatório). |
+| **Saídas** | blanket_order_id, doc_status ('active'). |
+| **Regras** | Blanket order deve estar 'draft' e ser do tipo 'selling'. |
+| **Efeitos colaterais** | UPDATE blanket_order (status='active'); audit_log; commit. |
+| **Pré-condições** | Blanket order 'draft' do tipo selling. |
+
+### `get-blanket-order`
+
+Retorna um blanket order de venda com seus itens.
+
+| | |
+|---|---|
+| **Entradas** | --blanket-order-id (obrigatório). |
+| **Saídas** | Campos do blanket_order + items. |
+| **Regras** | Blanket order deve existir. |
+| **Efeitos colaterais** | nenhum (leitura). |
+| **Pré-condições** | Blanket order existente. |
+
+### `list-blanket-orders`
+
+Lista blanket orders de venda com filtros e paginação.
+
+| | |
+|---|---|
+| **Entradas** | --company-id; --customer-id; --status; --limit (default 20); --offset (default 0). |
+| **Saídas** | blanket_orders (lista), total_count, limit, offset, has_more. |
+| **Regras** | Sempre filtra blanket_order_type='selling'; demais filtros por AND; ordena por created_at desc. |
+| **Efeitos colaterais** | nenhum (leitura). |
+| **Pré-condições** | Nenhuma. |
+
+### `create-so-from-blanket`
+
+Cria um pedido de venda (draft) fazendo drawdown de um blanket order ativo.
+
+| | |
+|---|---|
+| **Entradas** | --blanket-order-id (obrigatório); --items (obrigatório, JSON); --posting-date (default hoje); --delivery-date; --tax-template-id. |
+| **Saídas** | sales_order_id, blanket_order_id, total_amount, grand_total. |
+| **Regras** | Blanket deve estar 'active', tipo 'selling' e não expirado; cada item deve estar no blanket e qty<=quantidade remanescente (quantity - ordered_qty); rate do item ou do blanket; SO criado em 'draft'. |
+| **Efeitos colaterais** | INSERT sales_order (status='draft') e sales_order_item; UPDATE blanket_order_item.ordered_qty e blanket_order.ordered_qty; audit_log; commit. |
+| **Pré-condições** | Blanket order ativo, não expirado, com saldo remanescente. |
 
 ## Faturamento Intercompany
 
-**Objetivo.** Espelhar uma fatura de venda de uma empresa como fatura de compra (mirror PI) em outra empresa do grupo, mapeando contas, e cancelar em cascata ambas.
+**Objetivo.** Mapear contas entre empresas e espelhar/cancelar faturas intercompany (SI no vendedor -> PI no comprador).
 
-**Ações:**
-- `add-intercompany-account-map` — Mapeia conta da empresa origem para conta da empresa destino (valida pertencimento e duplicidade).
-- `list-intercompany-account-maps` — Lista mapeamentos por par de empresas com nomes das contas.
-- `create-intercompany-invoice` — Cria purchase_invoice 'draft' espelhando a SI submetida na empresa destino (supplier dado); marca a SI como is_intercompany.
-- `list-intercompany-invoices` — Lista faturas intercompany (SI como vendedor + PI como comprador) da empresa.
-- `cancel-intercompany-invoice` — Cancela a SI intercompany e cascateia para a PI espelho (reverte GL/SLE, delinka PLE; PI draft é apagada).
+### `add-intercompany-account-map`
 
-| Campo | Detalhe |
+Adiciona um mapeamento de conta da empresa origem para a conta da empresa destino.
+
+| | |
 |---|---|
-| **Entradas** | mapa: --company-id (origem), --target-company-id, --source-account-id, --target-account-id; espelho: --sales-invoice-id, --target-company-id, --supplier-id; cancel: --sales-invoice-id; list: --company-id. |
-| **Saídas** | map_id; create retorna purchase_invoice_id, source/target_company_id, totais, items_mirrored; cancel retorna status e contagens de reversões de SI e PI. |
-| **Regras de negócio** | Empresas origem/destino devem ser diferentes; contas devem pertencer às respectivas empresas; SI deve estar submetida e ainda não intercompany. Mirror copia datas/moeda/totais e mapeia conta de receita->despesa (ou default expense). Cancel exige SI is_intercompany; reverte SI e PI conforme status (PI 'draft' é deletada). |
-| **Efeitos colaterais** | INSERT em intercompany_account_map; create: INSERT purchase_invoice(_item) na empresa destino + UPDATE sales_invoice (is_intercompany=1, intercompany_reference_id). cancel: reverse_gl_entries/reverse_sle_entries em SI e PI, payment_ledger_entry delinked=1, UPDATE status='cancelled' em ambas (ou DELETE da PI draft). Sem auditoria explícita nessas ações. |
-| **Pré-condições** | Duas empresas distintas; supplier no destino representando a origem; SI submetida; contas (income/expense) e mapeamentos configurados. |
+| **Entradas** | --company-id (origem, obrigatório); --target-company-id (obrigatório); --source-account-id (obrigatório); --target-account-id (obrigatório). |
+| **Saídas** | map_id. |
+| **Regras** | Origem e destino devem ser empresas diferentes e existentes; cada conta deve pertencer à sua empresa; rejeita mapeamento duplicado para o par e conta de origem. |
+| **Efeitos colaterais** | INSERT intercompany_account_map; commit. Não grava audit_log. |
+| **Pré-condições** | Duas empresas distintas e suas contas existentes. |
+
+### `list-intercompany-account-maps`
+
+Lista mapeamentos de contas intercompany para um par de empresas.
+
+| | |
+|---|---|
+| **Entradas** | --company-id (origem, obrigatório); --target-company-id. |
+| **Saídas** | mappings (lista com nomes das contas origem/destino), total. |
+| **Regras** | Origem obrigatória; filtra por destino se informado; junta com account para trazer nomes. |
+| **Efeitos colaterais** | nenhum (leitura). |
+| **Pré-condições** | Empresa de origem existente. |
+
+### `create-intercompany-invoice`
+
+Cria uma fatura de compra espelho (draft) na empresa destino a partir de uma fatura de venda.
+
+| | |
+|---|---|
+| **Entradas** | --sales-invoice-id (obrigatório); --target-company-id (obrigatório); --supplier-id (obrigatório, fornecedor na empresa destino). |
+| **Saídas** | purchase_invoice_id, sales_invoice_id, source_company_id, target_company_id, total_amount, grand_total, items_mirrored. |
+| **Regras** | SI deve estar submitted/partially_paid/paid/overdue; origem != destino; SI não pode já ser intercompany; supplier deve pertencer à empresa destino; resolve conta de despesa via mapeamento (income origem -> expense destino) ou conta de despesa default. |
+| **Efeitos colaterais** | INSERT purchase_invoice (is_intercompany=1, status='draft', intercompany_reference_id=SI) e purchase_invoice_item; UPDATE sales_invoice (is_intercompany=1, intercompany_reference_id=PI); commit. Não grava audit_log. |
+| **Pré-condições** | SI submetida não-intercompany; empresa destino e supplier compatíveis existentes. |
+
+### `list-intercompany-invoices`
+
+Lista todas as faturas intercompany de uma empresa (como vendedora e compradora).
+
+| | |
+|---|---|
+| **Entradas** | --company-id (obrigatório); --limit (default 20); --offset (default 0). |
+| **Saídas** | invoices (SI com direction='sales' + PI com direction='purchase'), total. |
+| **Regras** | Une sales_invoice is_intercompany=1 (como vendedor) e purchase_invoice is_intercompany=1 (como comprador); ordena por posting_date desc. |
+| **Efeitos colaterais** | nenhum (leitura). |
+| **Pré-condições** | Empresa existente. |
+
+### `cancel-intercompany-invoice`
+
+Cancela uma fatura de venda intercompany e cascateia o cancelamento para a fatura de compra espelho.
+
+| | |
+|---|---|
+| **Entradas** | --sales-invoice-id (obrigatório). |
+| **Saídas** | sales_invoice_id, purchase_invoice_id, si_status, si_gl_reversals, si_sle_reversals, pi_gl_reversals, pi_sle_reversals. |
+| **Regras** | SI deve ser intercompany (is_intercompany=1); se SI submitted/overdue/partially_paid reverte GL/SLE e delinka PLE; PI espelho submetida é revertida de forma análoga, PI em draft é deletada; status já cancelado é no-op. |
+| **Efeitos colaterais** | INSERT reversões em gl_entry e stock_ledger_entry (SI e PI); UPDATE payment_ledger_entry (delinked=1); UPDATE sales_invoice e purchase_invoice (status='cancelled', outstanding=0) OU DELETE purchase_invoice/itens se draft; commit. Não grava audit_log. |
+| **Pré-condições** | SI intercompany existente com PI espelho referenciada. |
 
 ## Drop Ship/Romaneio
 
-**Objetivo.** Gerar pedido de compra com envio direto (drop-ship) ao cliente a partir de itens marcados no SO, e emitir romaneios de embalagem (packing slip) vinculados à nota de entrega.
+**Objetivo.** Gerar pedidos de compra por drop-ship a partir de itens do SO e gerir romaneios (packing slips) ligados a notas de entrega.
 
-**Ações:**
-- `create-drop-ship-order` — Cria purchase_order 'draft' para o supplier com delivery_address=endereço do cliente, a partir dos itens do SO com is_drop_ship=1 e remanescente>0; linka aos itens do SO.
-- `add-packing-slip` — Cria packing_slip vinculado a uma DN, validando que qty_packed acumulada não exceda a qty do item da DN.
-- `get-packing-slip` — Retorna o romaneio com seus itens (item_code/item_name).
-- `list-packing-slips` — Lista romaneios por DN e/ou empresa.
+### `create-drop-ship-order`
 
-| Campo | Detalhe |
+Cria um pedido de compra (draft) a partir dos itens drop-ship de um pedido de venda.
+
+| | |
 |---|---|
-| **Entradas** | drop-ship: --sales-order-id, --supplier-id, --posting-date; packing: --delivery-note-id, --items (delivery_note_item_id, qty_packed), --notes; get/list: --packing-slip-id, --delivery-note-id, --company-id. |
-| **Saídas** | purchase_order_id com delivery_address, total_amount e item_count; packing retorna packing_slip_id e item_count. |
-| **Regras de negócio** | drop-ship exige SO confirmed/partially_delivered e itens is_drop_ship=1 com remanescente (quantity-delivered_qty)>0; usa endereço primário do cliente. packing: qty_packed>0 e (qty_packed + já embalado) <= qty da DN por item. |
-| **Efeitos colaterais** | create-drop-ship: INSERT em purchase_order/purchase_order_item (status draft) ligados aos itens do SO; auditoria. add-packing-slip: INSERT em packing_slip/packing_slip_item; auditoria. get/list somente leitura. Nenhum GL/SLE/PLE. |
-| **Pré-condições** | SO confirmado com itens marcados is_drop_ship e supplier existente (drop-ship); DN existente com itens (packing); cliente com primary_address para o endereço de entrega. |
+| **Entradas** | --sales-order-id (obrigatório); --supplier-id (obrigatório); --posting-date (default hoje). |
+| **Saídas** | purchase_order_id, sales_order_id, supplier_id, delivery_address, total_amount, item_count, message. |
+| **Regras** | SO deve estar 'confirmed' ou 'partially_delivered'; supplier deve existir; usa só itens com is_drop_ship=1 e quantidade remanescente>0; PO usa delivery_address = endereço primário do cliente; PO criado em 'draft'. |
+| **Efeitos colaterais** | INSERT purchase_order (status='draft', delivery_address) e purchase_order_item (vinculados aos itens do SO); audit_log; commit. |
+| **Pré-condições** | SO confirmado/parcialmente entregue com itens drop-ship pendentes; supplier existente. |
+
+### `add-packing-slip`
+
+Cria um romaneio (packing slip) vinculado a uma nota de entrega.
+
+| | |
+|---|---|
+| **Entradas** | --delivery-note-id (obrigatório); --items (obrigatório, JSON: [{delivery_note_item_id, qty_packed}]); --posting-date (default hoje); --notes/--reason. |
+| **Saídas** | packing_slip_id, delivery_note_id, item_count, message. |
+| **Regras** | DN deve existir; cada item deve referenciar um delivery_note_item da DN; qty_packed>0; soma de qty_packed (incluindo packings anteriores) não pode exceder a qty da linha da DN. |
+| **Efeitos colaterais** | INSERT packing_slip e packing_slip_item; audit_log; commit. |
+| **Pré-condições** | Nota de entrega existente com itens correspondentes. |
+
+### `get-packing-slip`
+
+Retorna um romaneio com seus itens.
+
+| | |
+|---|---|
+| **Entradas** | --packing-slip-id (obrigatório). |
+| **Saídas** | Campos do packing_slip + items (com item_code, item_name). |
+| **Regras** | Packing slip deve existir. |
+| **Efeitos colaterais** | nenhum (leitura). |
+| **Pré-condições** | Romaneio existente. |
+
+### `list-packing-slips`
+
+Lista romaneios com filtros opcionais.
+
+| | |
+|---|---|
+| **Entradas** | --delivery-note-id; --company-id; --limit (default 20); --offset (default 0). |
+| **Saídas** | packing_slips (lista), count. |
+| **Regras** | Filtros opcionais; ordena por created_at desc. |
+| **Efeitos colaterais** | nenhum (leitura). |
+| **Pré-condições** | Nenhuma. |
 
 ## Status
 
-**Objetivo.** Fornecer um panorama consolidado do domínio de vendas para uma empresa: contagens por status e total a receber em aberto.
+**Objetivo.** Fornecer um resumo do domínio de vendas para uma empresa.
 
-**Ações:**
-- `status` — Resumo da empresa: nº de clientes, cotações/SOs/faturas agrupadas por status e total em aberto.
+### `status`
 
-| Campo | Detalhe |
+Retorna um resumo de vendas (contagens por status e total em aberto) para uma empresa.
+
+| | |
 |---|---|
-| **Entradas** | --company-id (opcional; se ausente usa a primeira empresa encontrada). |
-| **Saídas** | customers (contagem), quotations{}, sales_orders{}, sales_invoices{} por status e total_outstanding. |
-| **Regras de negócio** | Se nenhuma empresa for informada, usa a primeira do banco; erro amigável se não houver empresa. total_outstanding soma faturas submitted/overdue/partially_paid com outstanding>0. |
-| **Efeitos colaterais** | Nenhum (somente leitura) — apenas SELECTs agregados (Count/group by, decimal_sum). |
-| **Pré-condições** | Ao menos uma empresa cadastrada; tabelas de cliente/cotação/SO/fatura existentes. |
+| **Entradas** | --company-id (opcional; se omitido usa a primeira empresa encontrada). |
+| **Saídas** | customers (contagem), quotations (por status), sales_orders (por status), sales_invoices (por status), total_outstanding. |
+| **Regras** | Se nenhuma empresa informada nem existente, erro; agrega contagens via group by status; total_outstanding soma faturas submitted/overdue/partially_paid com saldo>0. |
+| **Efeitos colaterais** | nenhum (leitura). |
+| **Pré-condições** | Pelo menos uma empresa existente. |
 

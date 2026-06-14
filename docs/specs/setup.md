@@ -1,275 +1,796 @@
 # Configuração & Admin — `erpclaw-setup`
 
-> Specs funcionais (enxutas) por funcionalidade. Geradas do código: `scripts/erpclaw-setup/db_query.py`. 15 funcionalidades · 61 ações.
+> Spec funcional por ação. Gerada de `scripts/erpclaw-setup/db_query.py`. 15 funcionalidades · 61 ações.
 
 ## Gestão de Empresas
 
-**Objetivo.** Cadastrar e administrar as empresas (entidades legais) do ERP, com criação automática de estruturas contábeis e operacionais básicas para cada nova empresa.
+**Objetivo.** Criar, atualizar e consultar a entidade company e seus padrões contábeis/operacionais.
 
-**Ações:**
-- `setup-company` — Cria uma nova empresa e auto-provisiona ano fiscal, centro de custo padrão e armazém padrão.
-- `update-company` — Atualiza campos da empresa (moeda, país, contas-padrão de AR/AP/receita/despesa, banco/caixa, inventário perpétuo, congelamento contábil).
-- `get-company` — Retorna um registro de empresa (a primeira se nenhum id for passado).
-- `list-companies` — Lista empresas paginadas, ordenadas por nome, com total_count.
-- `set-advance-account` — Configura a sub-conta de adiantamento (advance_from_customer/advance_to_supplier) usada no roteamento de pagamentos antecipados.
+### `setup-company`
 
-| Campo | Detalhe |
+Cria uma nova empresa e auto-provisiona ano fiscal, centro de custo e armazém padrão.
+
+| | |
 |---|---|
-| **Entradas** | setup-company: --name (obrigatório), --abbr, --currency, --country, --fiscal-year-start-month, --industry. update-company: --company-id + campos atualizáveis (default_*_account_id, --perpetual-inventory, --enable-negative-stock, --accounts-frozen-till-date). set-advance-account: --company-id, --account-id, --type (customer\|supplier). |
-| **Saídas** | setup-company retorna company_id, abbr, fiscal_year_id, cost_center_id, warehouse_id e (se --industry) onboard_profile/profile_modules/region_module. update-company retorna updated_fields. list-companies retorna companies[], total_count, has_more. |
-| **Regras de negócio** | abbr derivada das iniciais do nome se não informada (fallback 3 primeiras letras). Ano fiscal calculado a partir do fiscal_year_start_month (jan->ano calendário; outro mês->12 meses). update-company rejeita contas-padrão que sejam grupo (is_group=1), exige conta folha. set-advance-account exige conta folha e root_type correto (liability p/ customer, asset p/ supplier). update-company sem campos retorna erro. |
-| **Efeitos colaterais** | INSERT em company; setup-company também INSERT em fiscal_year, cost_center, warehouse e UPDATE company (default_cost_center_id/default_warehouse_id) — criações secundárias são não-fatais (best-effort). Grava audit_log (create/update). Nenhuma postagem em gl_entry ou stock_ledger_entry. |
-| **Pré-condições** | Banco inicializado (initialize-database). Para update-company com contas-padrão, as contas (account) já devem existir e ser folha. set-advance-account exige empresa e conta existentes. |
+| **Entradas** | --name (obrigatório); --abbr (default: iniciais do nome, senão 3 primeiras letras); --currency (default USD); --country (default 'United States'); --fiscal-year-start-month (default 1); --industry (opcional, resolve perfil de onboarding). |
+| **Saídas** | company_id, name, abbr, fiscal_year_id, cost_center_id, warehouse_id; e opcionalmente onboard_profile, profile_modules, region_module. |
+| **Regras** | name é obrigatório; IntegrityError em duplicado/dados inválidos retorna erro. Calcula período do ano fiscal a partir do mês de início vs data atual. Criação de fiscal_year/cost_center/warehouse é não-fatal (falha apenas loga em stderr). --industry mapeia perfil/região via dados locais bundled (sem rede). |
+| **Efeitos colaterais** | INSERT em company; INSERT em fiscal_year; INSERT em cost_center e UPDATE company.default_cost_center_id; INSERT em warehouse e UPDATE company.default_warehouse_id; audit_log (action 'create', entity 'company'). Nenhuma postagem em gl_entry/SLE/PLE. |
+| **Pré-condições** | Banco inicializado (tabelas company/fiscal_year/cost_center/warehouse existentes). |
+
+### `update-company`
+
+Atualiza campos editáveis de uma empresa, incluindo contas/centros padrão.
+
+| | |
+|---|---|
+| **Entradas** | --company-id (default: primeira empresa); flags por campo: --name, --abbr, --currency, --country, --tax-id, contas padrão (--default-*-account-id), --default-cost-center-id, --default-warehouse-id, --round-off-account-id, --exchange-gain-loss-account-id, --perpetual-inventory, --enable-negative-stock, --accounts-frozen-till-date, --role-allowed-for-frozen-entries, --fiscal-year-start-month. |
+| **Saídas** | company_id, updated_fields (lista). |
+| **Regras** | Se nenhum company-id, usa a primeira empresa; erro se nenhuma existir ou id não encontrado. Erro 'No fields to update' se nada informado. Valida que contas padrão informadas não sejam contas de grupo (is_group=1), rejeitando com mensagem. |
+| **Efeitos colaterais** | UPDATE company (campos informados + updated_at); audit_log (action 'update', com old/new values). Somente leitura em account para validação. Sem gl_entry/SLE/PLE. |
+| **Pré-condições** | Pelo menos uma company existente; contas referenciadas devem existir e ser folha (leaf). |
+
+### `get-company`
+
+Retorna o registro completo de uma empresa.
+
+| | |
+|---|---|
+| **Entradas** | --company-id (default: primeira empresa). |
+| **Saídas** | company (objeto com todas as colunas). |
+| **Regras** | Sem id, retorna a primeira empresa; erro 'No company found' com sugestão se nenhuma existir. |
+| **Efeitos colaterais** | nenhum (leitura). |
+| **Pré-condições** | Banco inicializado; idealmente ao menos uma empresa. |
+
+### `list-companies`
+
+Lista empresas com paginação.
+
+| | |
+|---|---|
+| **Entradas** | --limit (default 20); --offset (default 0). |
+| **Saídas** | companies (array), total_count, limit, offset, has_more. |
+| **Regras** | Ordena por name; has_more calculado como offset+limit<total_count. |
+| **Efeitos colaterais** | nenhum (leitura). |
+| **Pré-condições** | Banco inicializado. |
 
 ## Moedas e Câmbio
 
-**Objetivo.** Manter o cadastro de moedas e as taxas de câmbio entre pares de moedas, com busca histórica e atualização automática via API externa.
+**Objetivo.** Cadastrar moedas e gerir taxas de câmbio manuais e via API externa.
 
-**Ações:**
-- `add-currency` — Cadastra uma moeda (code, name, symbol, decimal_places, enabled).
-- `list-currencies` — Lista moedas paginadas; --enabled-only filtra apenas habilitadas.
-- `add-exchange-rate` — Registra uma taxa de câmbio manual para um par/data.
-- `get-exchange-rate` — Retorna a taxa vigente de um par na data (ou a mais recente anterior).
-- `list-exchange-rates` — Lista taxas com filtros por par e intervalo de datas.
-- `fetch-exchange-rates` — Busca taxas atuais na frankfurter.dev (base USD) e faz upsert com source='api'.
+### `add-currency`
 
-| Campo | Detalhe |
+Cadastra uma moeda no catálogo.
+
+| | |
 |---|---|
-| **Entradas** | add-currency: --code (obrigatório), --name, --symbol, --decimal-places, --enabled. add-exchange-rate: --from-currency, --to-currency, --rate (obrigatórios), --effective-date, --source. get/list-exchange-rates: --from-currency, --to-currency, --from-date, --to-date. |
-| **Saídas** | add-currency: code, name. add-exchange-rate: exchange_rate_id, effective_date. get-exchange-rate: rate, effective_date, source. list-*: listas paginadas com total_count/has_more. fetch-exchange-rates: rates_updated, source, base, date. |
-| **Regras de negócio** | code armazenado em maiúsculas; decimal_places default 2. Códigos de moeda duplicados são rejeitados. effective_date default = hoje (UTC); source default 'manual'. get-exchange-rate seleciona a taxa com effective_date <= data, ordenada desc (mais recente). fetch-exchange-rates fixa from='USD', effective_date=hoje e faz update se já existir o par+data, senão insert. |
-| **Efeitos colaterais** | INSERT em currency e exchange_rate; fetch-exchange-rates faz INSERT/UPDATE em exchange_rate. Grava audit_log (create/fetch). fetch-exchange-rates realiza chamada HTTP externa (api.frankfurter.dev). Nenhuma postagem em gl_entry/SLE. |
-| **Pré-condições** | Banco inicializado. fetch-exchange-rates requer conexão à internet. add-exchange-rate funciona com quaisquer códigos (não valida FK contra currency). |
+| **Entradas** | --code (obrigatório, normalizado para maiúsculas); --name (default: code); --symbol (default ''); --decimal-places (default 2); --enabled (flag, default 0/desabilitada). |
+| **Saídas** | code, name. |
+| **Regras** | code obrigatório; IntegrityError retorna 'Currency already exists'. |
+| **Efeitos colaterais** | INSERT em currency; audit_log (action 'create', entity 'currency'). Sem gl_entry/SLE/PLE. |
+| **Pré-condições** | Banco inicializado (tabela currency). |
+
+### `list-currencies`
+
+Lista moedas, opcionalmente só as habilitadas.
+
+| | |
+|---|---|
+| **Entradas** | --enabled-only (flag); --limit (default 20); --offset (default 0). |
+| **Saídas** | currencies (array), total_count, limit, offset, has_more. |
+| **Regras** | Com --enabled-only filtra enabled=1; ordena por code. |
+| **Efeitos colaterais** | nenhum (leitura). |
+| **Pré-condições** | Banco inicializado. |
+
+### `add-exchange-rate`
+
+Registra uma taxa de câmbio manual para um par de moedas.
+
+| | |
+|---|---|
+| **Entradas** | --from-currency (obrigatório), --to-currency (obrigatório), --rate (obrigatório); --effective-date (default: hoje UTC); --source (default 'manual'). |
+| **Saídas** | exchange_rate_id, effective_date. |
+| **Regras** | Os três campos são obrigatórios; moedas normalizadas para maiúsculas; IntegrityError retorna falha (duplicado/inválido). |
+| **Efeitos colaterais** | INSERT em exchange_rate; audit_log (action 'create', entity 'exchange_rate'). Sem gl_entry/SLE/PLE. |
+| **Pré-condições** | Banco inicializado (tabela exchange_rate). |
+
+### `get-exchange-rate`
+
+Retorna a taxa vigente de um par na data (ou a mais recente anterior).
+
+| | |
+|---|---|
+| **Entradas** | --from-currency (obrigatório), --to-currency (obrigatório); --effective-date (default: hoje UTC). |
+| **Saídas** | rate, effective_date, source. |
+| **Regras** | from/to obrigatórios; busca effective_date <= data, ordenado desc, limit 1; erro se nenhuma taxa encontrada. |
+| **Efeitos colaterais** | nenhum (leitura). |
+| **Pré-condições** | Existir taxa para o par na/antes da data. |
+
+### `list-exchange-rates`
+
+Lista taxas de câmbio com filtros opcionais.
+
+| | |
+|---|---|
+| **Entradas** | --from-currency, --to-currency, --from-date, --to-date (todos opcionais); --limit (default 20); --offset (default 0). |
+| **Saídas** | rates (array), total_count, limit, offset, has_more. |
+| **Regras** | Aplica filtros conforme flags; ordena por effective_date desc. |
+| **Efeitos colaterais** | nenhum (leitura). |
+| **Pré-condições** | Banco inicializado. |
+
+### `fetch-exchange-rates`
+
+Busca taxas USD-base em frankfurter.dev e faz upsert no exchange_rate.
+
+| | |
+|---|---|
+| **Entradas** | Nenhuma flag (base=USD fixo, effective_date=hoje, source='api'). |
+| **Saídas** | rates_updated, source ('frankfurter.dev'), base ('USD'), date. |
+| **Regras** | Requer rede (timeout 15s); erro de conexão/HTTP retorna falha com sugestão; erro se API retornar zero taxas. Para cada par: UPDATE se já existe (USD/to/hoje), senão INSERT. |
+| **Efeitos colaterais** | INSERT ou UPDATE em exchange_rate (rate, source='api', updated_at); audit_log (action 'fetch', entity 'exchange_rate'). Sem gl_entry/SLE/PLE. Faz chamada HTTP externa. |
+| **Pré-condições** | Conexão de internet; tabela exchange_rate. |
 
 ## Condições de Pagamento
 
-**Objetivo.** Cadastrar condições/prazos de pagamento (dias para vencimento, descontos por antecipação) reutilizáveis em faturas de venda e compra.
+**Objetivo.** Cadastrar e listar templates de prazos/descontos de pagamento.
 
-**Ações:**
-- `add-payment-terms` — Cria uma condição de pagamento com prazo, percentual e dias de desconto.
-- `list-payment-terms` — Lista condições paginadas, ordenadas por due_days e nome.
+### `add-payment-terms`
 
-| Campo | Detalhe |
+Cria um template de condição de pagamento.
+
+| | |
 |---|---|
-| **Entradas** | add-payment-terms: --name (obrigatório), --due-days (default 30), --discount-percentage, --discount-days, --description. list-payment-terms: --limit, --offset. |
-| **Saídas** | add-payment-terms: payment_terms_id, name. list-payment-terms: terms[], total_count, limit, offset, has_more. |
-| **Regras de negócio** | Nome duplicado é rejeitado (IntegrityError). due_days default 30 quando não informado; demais campos opcionais. Somente cadastro/listagem (sem ciclo rascunho/submit). |
-| **Efeitos colaterais** | INSERT em payment_terms. Grava audit_log (create). Nenhuma postagem em gl_entry/SLE. |
+| **Entradas** | --name (obrigatório); --due-days (default 30); --discount-percentage (opcional); --discount-days (opcional); --description (opcional). |
+| **Saídas** | payment_terms_id, name. |
+| **Regras** | name obrigatório; IntegrityError retorna 'Payment terms already exists'. |
+| **Efeitos colaterais** | INSERT em payment_terms; audit_log (action 'create', entity 'payment_terms'). Sem gl_entry/SLE/PLE. |
+| **Pré-condições** | Banco inicializado (tabela payment_terms). |
+
+### `list-payment-terms`
+
+Lista todas as condições de pagamento.
+
+| | |
+|---|---|
+| **Entradas** | --limit (default 20); --offset (default 0). |
+| **Saídas** | terms (array), total_count, limit, offset, has_more. |
+| **Regras** | Ordena por due_days e name. |
+| **Efeitos colaterais** | nenhum (leitura). |
 | **Pré-condições** | Banco inicializado. |
 
 ## Unidades de Medida
 
-**Objetivo.** Manter unidades de medida (UoM) e fatores de conversão entre elas, opcionalmente específicos por item, para uso em estoque, vendas e compras.
+**Objetivo.** Gerir unidades de medida (UoM) e seus fatores de conversão.
 
-**Ações:**
-- `add-uom` — Cria uma unidade de medida; --must-be-whole-number força quantidades inteiras.
-- `list-uoms` — Lista UoMs paginadas, ordenadas por nome.
-- `add-uom-conversion` — Registra um fator de conversão entre duas UoMs, opcionalmente vinculado a um item.
+### `add-uom`
 
-| Campo | Detalhe |
+Cadastra uma unidade de medida.
+
+| | |
 |---|---|
-| **Entradas** | add-uom: --name (obrigatório), --must-be-whole-number. add-uom-conversion: --from-uom, --to-uom, --conversion-factor (obrigatórios), --item-id. |
-| **Saídas** | add-uom: uom_id, name. add-uom-conversion: uom_conversion_id. list-uoms: uoms[], total_count, has_more. |
-| **Regras de negócio** | Nome de UoM duplicado é rejeitado. add-uom-conversion exige os três campos; falha de integridade (duplicidade/dados inválidos) retorna erro. --item-id opcional permite conversão específica do item. |
-| **Efeitos colaterais** | INSERT em uom e uom_conversion. Grava audit_log (create). Nenhuma postagem em gl_entry/SLE. |
-| **Pré-condições** | Banco inicializado. As UoMs referenciadas na conversão devem existir como cadastro (não há FK forte verificada no código). |
+| **Entradas** | --name (obrigatório); --must-be-whole-number (flag, default 0). |
+| **Saídas** | uom_id, name. |
+| **Regras** | name obrigatório; IntegrityError retorna 'UoM already exists'. |
+| **Efeitos colaterais** | INSERT em uom; audit_log (action 'create', entity 'uom'). Sem gl_entry/SLE/PLE. |
+| **Pré-condições** | Banco inicializado (tabela uom). |
+
+### `list-uoms`
+
+Lista todas as unidades de medida.
+
+| | |
+|---|---|
+| **Entradas** | --limit (default 20); --offset (default 0). |
+| **Saídas** | uoms (array), total_count, limit, offset, has_more. |
+| **Regras** | Ordena por name. |
+| **Efeitos colaterais** | nenhum (leitura). |
+| **Pré-condições** | Banco inicializado. |
+
+### `add-uom-conversion`
+
+Registra um fator de conversão entre duas UoMs (opcionalmente por item).
+
+| | |
+|---|---|
+| **Entradas** | --from-uom (obrigatório), --to-uom (obrigatório), --conversion-factor (obrigatório); --item-id (opcional). |
+| **Saídas** | uom_conversion_id. |
+| **Regras** | from-uom/to-uom/conversion-factor obrigatórios; IntegrityError retorna falha (duplicado/inválido). |
+| **Efeitos colaterais** | INSERT em uom_conversion; audit_log (action 'create', entity 'uom_conversion'). Sem gl_entry/SLE/PLE. |
+| **Pré-condições** | Banco inicializado (tabela uom_conversion); UoMs referenciadas devem existir. |
 
 ## Usuários e Acessos (RBAC)
 
-**Objetivo.** Gerenciar contas de usuário do ERP, seu vínculo a empresas, senha de login web e atribuição/revogação de papéis para controle de acesso.
+**Objetivo.** Criar e administrar contas de usuário ERP, status, senhas web e vínculos de empresa.
 
-**Ações:**
-- `add-user` — Cria um usuário (username via --name), e-mail e nome completo, opcionalmente vinculado a uma empresa.
-- `update-user` — Atualiza username/e-mail/nome/status e anexa empresa à lista company_ids.
-- `list-users` — Lista usuários paginados, ordenados por username.
-- `get-user` — Retorna um usuário com seus papéis (join user_role/role/company).
-- `set-password` — Define a senha de login web do usuário (hash armazenado).
-- `assign-role` — Atribui um papel a um usuário, opcionalmente com escopo de empresa.
-- `revoke-role` — Remove a atribuição de um papel de um usuário (NULL-safe por empresa).
+### `add-user`
 
-| Campo | Detalhe |
+Cria um novo usuário ERP.
+
+| | |
 |---|---|
-| **Entradas** | add-user: --name (username), --email, --full-name, --company-id. update-user: --user-id + campos + --user-status (active\|disabled\|locked). set-password: --user-id, --password (>=8). assign/revoke-role: --user-id, --role-name, --company-id (NULL=global). |
-| **Saídas** | add-user/update-user: user_id, updated_fields. get-user: registro do usuário + roles[]. set-password: mensagem de sucesso. assign-role: user_role_id, role_name, company_id. revoke-role: revoked, user_id. |
-| **Regras de negócio** | username único (rejeita duplicado). Formato de e-mail validado por regex. user-status restrito a active/disabled/locked. company_ids é JSON-array (append sem duplicar). set-password exige >=8 caracteres e grava password_hash. assign-role usa comparação NULL-safe (company_id IS ?) e rejeita atribuição já existente; revoke-role erra se não houver atribuição. |
-| **Efeitos colaterais** | INSERT/UPDATE em erp_user; INSERT/DELETE em user_role; set-password faz UPDATE de password_hash (via passwords.hash_password). Grava audit_log (add-user/update-user/set-password/assign-role/revoke-role). Nenhuma postagem em gl_entry/SLE. O RBAC é opt-in: a criação de usuários ativa a checagem de permissões no sistema. |
-| **Pré-condições** | Banco inicializado. assign-role exige usuário e papel existentes (papéis-sistema vêm seeded). set-password exige usuário existente. company_id opcional deve referenciar empresa válida. |
+| **Entradas** | --name (username, obrigatório); --email (opcional, validado); --full-name (opcional); --company-id (opcional, vira lista company_ids). |
+| **Saídas** | user_id, username. |
+| **Regras** | username obrigatório; email validado por regex se informado; erro se username já existe. |
+| **Efeitos colaterais** | INSERT em erp_user; audit_log (action 'add-user', entity 'erp_user'). Sem gl_entry/SLE/PLE. |
+| **Pré-condições** | Banco inicializado (tabela erp_user). |
+
+### `update-user`
+
+Atualiza campos de um usuário existente (username, email, nome, status, empresas).
+
+| | |
+|---|---|
+| **Entradas** | --user-id (obrigatório); --name (novo username); --email; --full-name; --user-status (active\|disabled\|locked); --company-id (anexa à lista). |
+| **Saídas** | user_id, updated_fields. |
+| **Regras** | user-id obrigatório; erro se usuário não encontrado; user-status validado contra active/disabled/locked; company-id é anexado (sem duplicar) a company_ids; erro 'No fields to update' se nada informado. |
+| **Efeitos colaterais** | UPDATE em erp_user (+ updated_at); audit_log (action 'update-user', com old/new). Sem gl_entry/SLE/PLE. |
+| **Pré-condições** | Usuário existente. |
+
+### `list-users`
+
+Lista usuários ERP com paginação.
+
+| | |
+|---|---|
+| **Entradas** | --limit (default 50); --offset (default 0). |
+| **Saídas** | users (array: id, username, email, full_name, status, company_ids, created_at), count, has_more. |
+| **Regras** | Busca limit+1 para detectar has_more; ordena por username. |
+| **Efeitos colaterais** | nenhum (leitura). |
+| **Pré-condições** | Banco inicializado. |
+
+### `get-user`
+
+Retorna um usuário e seus papéis atribuídos (com escopo de empresa).
+
+| | |
+|---|---|
+| **Entradas** | --user-id (obrigatório). |
+| **Saídas** | todos os campos do usuário + roles (array: role_name, company_id, company_name). |
+| **Regras** | user-id obrigatório; erro se usuário não encontrado; faz join user_role/role/company. |
+| **Efeitos colaterais** | nenhum (leitura). |
+| **Pré-condições** | Usuário existente. |
+
+### `set-password`
+
+Define a senha de login web (hash) de um usuário.
+
+| | |
+|---|---|
+| **Entradas** | --user-id (obrigatório); --password (obrigatório, mínimo 8 caracteres). |
+| **Saídas** | user_id, username, message. |
+| **Regras** | user-id e password obrigatórios; senha < 8 chars rejeitada; erro se usuário não encontrado; usa hash_password da lib. |
+| **Efeitos colaterais** | UPDATE erp_user.password_hash (+ updated_at); audit_log (action 'set-password', sem valores). Sem gl_entry/SLE/PLE. |
+| **Pré-condições** | Usuário existente. |
 
 ## Papéis e Permissões
 
-**Objetivo.** Definir papéis (roles) e a matriz de permissões skill/ação que governa o que cada papel pode executar, incluindo o carregamento das permissões padrão.
+**Objetivo.** Gerir papéis (roles), suas atribuições a usuários e o seed de permissões padrão RBAC.
 
-**Ações:**
-- `add-role` — Cria um papel customizado (is_system=0) com nome e descrição.
-- `list-roles` — Lista papéis com contagem de usuários, papéis-sistema primeiro.
-- `seed-permissions` — Popula role_permission com a matriz padrão por papel (idempotente).
+### `add-role`
 
-| Campo | Detalhe |
+Cria um papel customizado (não-sistema).
+
+| | |
 |---|---|
-| **Entradas** | add-role: --name (obrigatório), --description. list-roles: sem parâmetros. seed-permissions: sem parâmetros. |
-| **Saídas** | add-role: role_id, name. list-roles: roles[] (com user_count), count. seed-permissions: permissions_seeded (total na tabela). |
-| **Regras de negócio** | Nome de papel duplicado é rejeitado. Resolução de permissão: sem erp_user => permite tudo (RBAC inativo); papel 'System Manager' => permite tudo (padrão '*','*'); senão casa skill+action_pattern (wildcards fnmatch como list-*, submit-*, *); sem regra => nega. seed-permissions usa INSERT OR IGNORE por papel/skill/pattern, sendo idempotente. |
-| **Efeitos colaterais** | INSERT em role; seed-permissions faz INSERT OR IGNORE em role_permission. add-role grava audit_log (add-role). Nenhuma postagem em gl_entry/SLE. |
-| **Pré-condições** | Banco inicializado. seed-permissions depende dos papéis já existirem (papéis-sistema seeded no init_db) — pula papéis ausentes. |
+| **Entradas** | --name (obrigatório); --description (opcional). |
+| **Saídas** | role_id, name. |
+| **Regras** | name obrigatório; erro se role já existe; gravado com is_system=0. |
+| **Efeitos colaterais** | INSERT em role; audit_log (action 'add-role', entity 'role'). Sem gl_entry/SLE/PLE. |
+| **Pré-condições** | Banco inicializado (tabela role). |
+
+### `list-roles`
+
+Lista todos os papéis com contagem de usuários por papel.
+
+| | |
+|---|---|
+| **Entradas** | Nenhuma. |
+| **Saídas** | roles (array: id, name, description, is_system, user_count), count. |
+| **Regras** | Left join com user_role; ordena por is_system desc, depois name. |
+| **Efeitos colaterais** | nenhum (leitura). |
+| **Pré-condições** | Banco inicializado. |
+
+### `assign-role`
+
+Atribui um papel a um usuário, opcionalmente com escopo de empresa.
+
+| | |
+|---|---|
+| **Entradas** | --user-id (obrigatório); --role-name (obrigatório); --company-id (opcional; None = atribuição global). |
+| **Saídas** | user_role_id, role_name, company_id. |
+| **Regras** | user-id e role-name obrigatórios; erro se usuário ou role não encontrado; erro se já atribuído (comparação NULL-safe via SQL IS ?). |
+| **Efeitos colaterais** | INSERT em user_role; audit_log (action 'assign-role', entity 'user_role'). Sem gl_entry/SLE/PLE. |
+| **Pré-condições** | Usuário e role existentes. |
+
+### `revoke-role`
+
+Remove um papel de um usuário (no escopo de empresa informado).
+
+| | |
+|---|---|
+| **Entradas** | --user-id (obrigatório); --role-name (obrigatório); --company-id (opcional, NULL-safe). |
+| **Saídas** | revoked (role_name), user_id. |
+| **Regras** | user-id e role-name obrigatórios; erro se role não encontrado; DELETE com IS ?; erro se não havia atribuição (rowcount 0). |
+| **Efeitos colaterais** | DELETE em user_role; audit_log (action 'revoke-role', entity 'user_role', com old values). Sem gl_entry/SLE/PLE. |
+| **Pré-condições** | Role existente e atribuição presente. |
+
+### `seed-permissions`
+
+Popula as permissões padrão de papéis a partir da lib RBAC compartilhada.
+
+| | |
+|---|---|
+| **Entradas** | Nenhuma. |
+| **Saídas** | permissions_seeded (contagem total de role_permission). |
+| **Regras** | Chama seed_role_permissions da lib; idempotente conforme implementação da lib. |
+| **Efeitos colaterais** | INSERT em role_permission (via lib seed_role_permissions). Sem audit_log direto. Sem gl_entry/SLE/PLE. |
+| **Pré-condições** | Banco inicializado (tabelas role/role_permission). |
 
 ## Integração Telegram
 
-**Objetivo.** Vincular contas de usuário do ERP a IDs numéricos do Telegram e verificar permissões de ações executadas via bot do Telegram.
+**Objetivo.** Vincular IDs de usuário do Telegram a contas ERP e checar permissões via Telegram.
 
-**Ações:**
-- `link-telegram-user` — Vincula um ID numérico do Telegram a um usuário do ERP.
-- `unlink-telegram-user` — Remove o vínculo de Telegram do usuário.
-- `check-telegram-permission` — Verifica se o usuário Telegram tem permissão para uma skill/ação.
+### `link-telegram-user`
 
-| Campo | Detalhe |
+Vincula um Telegram user ID a uma conta de usuário ERP.
+
+| | |
 |---|---|
-| **Entradas** | link: --user-id, --telegram-user-id (obrigatórios). unlink: --telegram-user-id. check: --telegram-user-id, --skill, --check-action (obrigatórios). |
-| **Saídas** | link/unlink: user_id, telegram_user_id, linked/unlinked. check: allowed (bool), user_id, skill, action; se não vinculado retorna allowed=false com reason='not_linked'. |
-| **Regras de negócio** | Um telegram_user_id não pode estar vinculado a outro usuário (rejeita conflito). unlink erra se não houver usuário vinculado. check resolve telegram_user_id->erp_user (apenas status='active') e aplica check_permission; se não vinculado, nega sem erro. |
-| **Efeitos colaterais** | UPDATE em erp_user (campo telegram_user_id set/clear). Grava audit_log (link/unlink). check-telegram-permission é somente leitura. Nenhuma postagem em gl_entry/SLE. |
-| **Pré-condições** | Banco inicializado. link exige usuário existente. check pressupõe RBAC povoado (papéis/permissões seeded) para resultado significativo; com RBAC inativo permite tudo. |
+| **Entradas** | --user-id (obrigatório); --telegram-user-id (obrigatório). |
+| **Saídas** | user_id, username, telegram_user_id, linked (true). |
+| **Regras** | Ambos obrigatórios; erro se usuário não encontrado; erro se o telegram-user-id já está vinculado a outra conta. |
+| **Efeitos colaterais** | UPDATE erp_user.telegram_user_id (+ updated_at); audit_log (action 'link-telegram-user'). Sem gl_entry/SLE/PLE. |
+| **Pré-condições** | Usuário ERP existente; telegram-user-id não vinculado a outro usuário. |
+
+### `unlink-telegram-user`
+
+Remove o vínculo de um Telegram user ID de uma conta ERP.
+
+| | |
+|---|---|
+| **Entradas** | --telegram-user-id (obrigatório). |
+| **Saídas** | user_id, telegram_user_id, unlinked (true). |
+| **Regras** | telegram-user-id obrigatório; erro se nenhum usuário estiver vinculado a esse ID. |
+| **Efeitos colaterais** | UPDATE erp_user.telegram_user_id = NULL (+ updated_at); audit_log (action 'unlink-telegram-user', com old values). Sem gl_entry/SLE/PLE. |
+| **Pré-condições** | Existir usuário vinculado ao telegram-user-id. |
+
+### `check-telegram-permission`
+
+Verifica se um usuário Telegram tem permissão para uma ação de skill.
+
+| | |
+|---|---|
+| **Entradas** | --telegram-user-id (obrigatório); --skill (obrigatório); --check-action (obrigatório). |
+| **Saídas** | allowed (bool); se vinculado: user_id, skill, action, telegram_user_id; se não: reason='not_linked'. |
+| **Regras** | Três campos obrigatórios; resolve user via resolve_telegram_user_id; se não vinculado retorna allowed=false reason not_linked; senão consulta check_permission da lib RBAC. |
+| **Efeitos colaterais** | nenhum (leitura). |
+| **Pré-condições** | Banco inicializado; permissões seeded para resultado significativo. |
 
 ## Credenciais de Integração
 
-**Objetivo.** Armazenar e gerenciar de forma criptografada as credenciais (API keys) de integrações externas, substituindo a passagem de --api-key em linha de comando.
+**Objetivo.** Armazenar, consultar e migrar credenciais de integrações no arquivo de credenciais criptografado.
 
-**Ações:**
-- `set-credential` — Grava uma credencial de integração no arquivo criptografado (valor via --value, --from-stdin ou --from-env).
-- `get-credential` — Informa se uma credencial existe e um preview redigido; nunca retorna o valor.
-- `list-credentials` — Lista apenas os nomes de integração com credencial armazenada.
-- `delete-credential` — Remove uma credencial armazenada.
-- `migrate-credentials` — Migra credenciais em texto puro de tabelas de add-ons (ex.: stripe_account.api_key) para o store criptografado; --dry-run pré-visualiza.
+### `set-credential`
 
-| Campo | Detalhe |
+Armazena uma credencial de integração no arquivo criptografado.
+
+| | |
 |---|---|
-| **Entradas** | set-credential: --integration + (--value \| --from-stdin \| --from-env VAR). get/delete-credential: --integration. migrate-credentials: --dry-run. |
-| **Saídas** | set: mensagem, integration, credentials_file. get: integration, exists, redacted_preview. list: integrations[]. delete: deleted (bool). migrate: dry_run, moved[], skipped[]. |
-| **Regras de negócio** | O valor nunca é aceito via --api-key e nunca é retornado por get/list. set-credential sobrescreve entrada existente. migrate-credentials pula integrações já no store e, fora de dry-run, anula a coluna de origem após mover. get-credential exige valor com >=12 chars para mostrar preview. |
-| **Efeitos colaterais** | Grava/lê o arquivo criptografado ~/.config/erpclaw/credentials.json.enc (AES-256-GCM, mode 0600), criptografado com a master key da máquina. migrate-credentials faz UPDATE nas tabelas de add-on (ex.: stripe_account.api_key=NULL) e commit. NÃO grava em audit_log. Nenhuma postagem em gl_entry/SLE. |
-| **Pré-condições** | Banco inicializado. Master key disponível/gerada automaticamente (~/.config/erpclaw/master.key). migrate-credentials requer as tabelas de add-on presentes (tolerado se ausentes). |
+| **Entradas** | --integration (obrigatório); valor via --value OU --from-stdin OU --from-env <VAR> (um obrigatório). |
+| **Saídas** | message, integration, credentials_file (caminho). |
+| **Regras** | integration obrigatório; exige fonte de valor (value/stdin/env); erro se valor vazio ou env var não setada; nunca aceita o valor via --api-key. |
+| **Efeitos colaterais** | Escreve no arquivo de credenciais criptografado (erpclaw_lib.credentials, NÃO em tabela do DB); sem audit_log; sem gl_entry/SLE/PLE. |
+| **Pré-condições** | Lib de credenciais disponível; master key disponível para criptografia. |
+
+### `get-credential`
+
+Informa se uma credencial existe (sem expor o valor).
+
+| | |
+|---|---|
+| **Entradas** | --integration (obrigatório). |
+| **Saídas** | integration, exists (bool), redacted_preview (4 primeiros/4 últimos chars se len>=12, senão null). |
+| **Regras** | integration obrigatório; nunca retorna o valor completo, apenas preview redigido. |
+| **Efeitos colaterais** | nenhum (leitura do arquivo de credenciais). |
+| **Pré-condições** | Lib de credenciais disponível. |
+
+### `list-credentials`
+
+Lista os nomes de integrações com credenciais armazenadas.
+
+| | |
+|---|---|
+| **Entradas** | Nenhuma. |
+| **Saídas** | integrations (array de nomes). |
+| **Regras** | Nunca lista valores, apenas nomes. |
+| **Efeitos colaterais** | nenhum (leitura do arquivo de credenciais). |
+| **Pré-condições** | Lib de credenciais disponível. |
+
+### `delete-credential`
+
+Remove uma credencial armazenada.
+
+| | |
+|---|---|
+| **Entradas** | --integration (obrigatório). |
+| **Saídas** | integration, deleted (bool), message. |
+| **Regras** | integration obrigatório; deleted=false se não havia credencial. |
+| **Efeitos colaterais** | Remove entrada do arquivo de credenciais criptografado; sem audit_log; sem gl_entry/SLE/PLE. |
+| **Pré-condições** | Lib de credenciais disponível. |
+
+### `migrate-credentials`
+
+Migra credenciais em texto plano de tabelas de addons para o arquivo criptografado.
+
+| | |
+|---|---|
+| **Entradas** | --dry-run (flag; pré-visualiza sem gravar). |
+| **Saídas** | dry_run, moved (array), skipped (array), next (orientação). |
+| **Regras** | Detecta tabela stripe_account.api_key; pula se já no store criptografado; com --dry-run não grava. Falhas por tabela ausente são ignoradas (addon não instalado). |
+| **Efeitos colaterais** | Sem dry-run: escreve no arquivo de credenciais e faz UPDATE stripe_account.api_key=NULL (commit). Com dry-run: nenhum. Sem gl_entry/SLE/PLE; sem audit_log. |
+| **Pré-condições** | Tabela de addon (ex.: stripe_account) presente para haver o que migrar. |
 
 ## Campos Personalizados (UDF)
 
-**Objetivo.** Permitir que administradores estendam tabelas-núcleo com campos definidos pelo usuário (UDF), com validação de tipo, e armazenem/recuperem seus valores por linha.
+**Objetivo.** Definir, listar, remover e atribuir valores de campos customizados (UDF) em tabelas core.
 
-**Ações:**
-- `add-custom-field` — Registra a definição de um campo personalizado em uma tabela-núcleo (tipo, label, required, default, options).
-- `list-custom-fields` — Lista definições de campos personalizados, opcionalmente por --table.
-- `remove-custom-field` — Remove a definição e seus valores armazenados (hard delete, exige --confirm se houver valores).
-- `set-custom-field-value` — Define um valor de campo personalizado em uma linha, com validação.
-- `get-custom-field-values` — Retorna os valores personalizados de uma linha (todos ou um campo).
+### `add-custom-field`
 
-| Campo | Detalhe |
+Registra a definição de um campo customizado em uma tabela core (M1).
+
+| | |
 |---|---|
-| **Entradas** | add: --table, --field-name, --field-type (text\|int\|float\|date\|select\|link\|json), --label, --required, --default, --options, --skill-name. remove: --table, --field-name, --confirm. set-value: --table, --row-id, --field-name, --value. get-values: --table, --row-id, --field-name. |
-| **Saídas** | add: custom_field_id, table, field_name, field_type. list: custom_fields[], count. remove: deleted_values. set-value: stored. get-values: custom_fields{}. |
-| **Regras de negócio** | field-type restrito à lista válida. options: select -> JSON {values:[...]} a partir de lista por vírgula; link -> {table:...}; outros -> JSON bruto. Campo duplicado na mesma tabela é rejeitado. remove com valores existentes exige --confirm e checa owner_skill (rejeita por mismatch). set-value valida o valor (validate_custom_field_values) antes de gravar. |
-| **Efeitos colaterais** | INSERT/DELETE em custom_field e INSERT/DELETE/UPSERT em custom_field_value (via lib custom_fields). add/remove gravam audit_log (create/delete); set-value não grava audit. Nenhuma postagem em gl_entry/SLE. |
-| **Pré-condições** | Banco inicializado e tabelas custom_field/custom_field_value presentes. A tabela-alvo (--table) e a linha (--row-id) devem existir para set/get de valores. |
+| **Entradas** | --table (obrigatório); --field-name (obrigatório, snake_case); --field-type (obrigatório: text\|int\|float\|date\|select\|link\|json); --label, --required (flag), --default, --options, --skill-name (default 'erpclaw-setup'). |
+| **Saídas** | result='registered', custom_field_id, table, field_name, field_type. |
+| **Regras** | table/field-name obrigatórios; field-type validado contra lista; --options para select vira {values:[...]}, para link vira {table:...}, demais tipos é JSON cru; IntegrityError retorna 'já existe'. |
+| **Efeitos colaterais** | INSERT em custom_field (via cf.add_custom_field); audit_log (action 'create', entity 'custom_field'). Sem gl_entry/SLE/PLE. |
+| **Pré-condições** | Banco inicializado com tabela custom_field (lib custom_fields). |
+
+### `list-custom-fields`
+
+Lista definições de campos customizados (opcionalmente por tabela).
+
+| | |
+|---|---|
+| **Entradas** | --table (opcional, filtro). |
+| **Saídas** | custom_fields (array), count. |
+| **Regras** | Filtra por table_name se informado; ordena por table_name, field_name. |
+| **Efeitos colaterais** | nenhum (leitura). |
+| **Pré-condições** | Tabela custom_field existente. |
+
+### `remove-custom-field`
+
+Remove a definição de um campo customizado e seus valores armazenados.
+
+| | |
+|---|---|
+| **Entradas** | --table (obrigatório); --field-name (obrigatório); --confirm (flag, exigido se houver valores). |
+| **Saídas** | result='removed', table, field_name, deleted_values (contagem). |
+| **Regras** | table/field-name obrigatórios; erro se campo não existe; se há valores armazenados, exige --confirm; remoção respeita owner_skill (erro 'owner mismatch'). Hard delete. |
+| **Efeitos colaterais** | DELETE em custom_field e custom_field_value (via cf.remove_custom_field); audit_log (action 'delete', entity 'custom_field'). Sem gl_entry/SLE/PLE. |
+| **Pré-condições** | Definição de campo existente; --confirm se houver valores. |
+
+### `set-custom-field-value`
+
+Define o valor de um campo customizado em uma linha (validado).
+
+| | |
+|---|---|
+| **Entradas** | --table (obrigatório); --row-id (obrigatório); --field-name (obrigatório); --value (obrigatório). |
+| **Saídas** | result='stored', table, row_id, field_name, value. |
+| **Regras** | table/row-id/field-name obrigatórios; value obrigatório (não pode ser None); valida via cf.validate_custom_field_values e aborta com erros se inválido. |
+| **Efeitos colaterais** | INSERT/UPDATE em custom_field_value (via cf.store_custom_field_values, commit). Sem audit_log. Sem gl_entry/SLE/PLE. |
+| **Pré-condições** | Definição do campo registrada para a tabela. |
+
+### `get-custom-field-values`
+
+Lê valores de campos customizados de uma linha (todos ou um específico).
+
+| | |
+|---|---|
+| **Entradas** | --table (obrigatório); --row-id (obrigatório); --field-name (opcional, filtra um campo). |
+| **Saídas** | table, row_id, custom_fields (dict de valores). |
+| **Regras** | table/row-id obrigatórios; se --field-name informado retorna apenas esse campo. |
+| **Efeitos colaterais** | nenhum (leitura). |
+| **Pré-condições** | Tabela custom_field_value existente. |
 
 ## Registros de Tipos e Status
 
-**Objetivo.** Administrar em runtime os registros que são fonte de verdade para tipos de conta, tipos de comprovante (voucher) e validar a completude desses registros frente aos dados vivos.
+**Objetivo.** Administrar em runtime os registries de account_type e voucher_type (extensão, listagem, desativação) e diagnosticar cobertura.
 
-**Ações:**
-- `add-account-type` — Registra um novo account_type para que contas possam usá-lo.
-- `list-account-types` — Lista account_types ativos (ou todos com --include-inactive).
-- `deactivate-account-type` — Soft-disable de account_type (bloqueado se alguma conta o usa).
-- `add-voucher-type` — Registra um voucher_type para uma tabela-alvo (gl_entry|stock_ledger_entry|payment_allocation).
-- `list-voucher-types` — Lista voucher_types, opcionalmente por --target-table.
-- `deactivate-voucher-type` — Soft-disable de voucher_type por tabela-alvo (bloqueado se linhas vivas o usam).
-- `validate-registry-completeness` — Diagnóstico read-only: valores de tipo/status presentes em dados vivos mas não registrados+ativos.
+### `add-account-type`
 
-| Campo | Detalhe |
+Registra um novo account_type para que contas possam usá-lo (M0).
+
+| | |
 |---|---|
-| **Entradas** | add-account-type: --account-type, --label, --skill-name. add-voucher-type: --voucher-type, --target-table (lista fixa), --label, --skill-name. deactivate-*: o respectivo tipo (+ --target-table). list-*: --include-inactive, --target-table. |
-| **Saídas** | add-*: result='registered' + valores. list-*: listas + count. deactivate-*: result='deactivated'. validate-registry-completeness: complete (bool), unregistered_in_use{} por categoria. |
-| **Regras de negócio** | Tipo já registrado é rejeitado. target_table de voucher restrita a gl_entry/stock_ledger_entry/payment_allocation. deactivate bloqueia se houver account/linha usando o tipo (conta COUNT na tabela alvo). validate cruza valores DISTINCT em account/gl_entry/payment_entry/payment_ledger_entry/asset contra os registros ativos; novos writes com valores não registrados+ativos seriam rejeitados. |
-| **Efeitos colaterais** | INSERT/UPDATE em account_type_registry e voucher_type_registry (is_active). add/deactivate gravam audit_log (create/update). validate-registry-completeness é somente leitura. Nenhuma postagem em gl_entry/SLE (apenas leitura dessas tabelas para contagem). |
-| **Pré-condições** | Banco inicializado com as tabelas de registro (M0). deactivate exige que nenhuma linha viva use o valor. |
+| **Entradas** | --account-type (obrigatório); --label (default: derivado do valor); --skill-name (default 'custom'). |
+| **Saídas** | result='registered', account_type, label. |
+| **Regras** | account-type obrigatório; IntegrityError retorna 'já registrado'. |
+| **Efeitos colaterais** | INSERT em account_type_registry (is_active=1); audit_log (action 'create', entity 'account_type_registry'). Sem gl_entry/SLE/PLE. |
+| **Pré-condições** | Tabela account_type_registry existente. |
+
+### `list-account-types`
+
+Lista account types registrados (só ativos, salvo --include-inactive).
+
+| | |
+|---|---|
+| **Entradas** | --include-inactive (flag). |
+| **Saídas** | account_types (array), count. |
+| **Regras** | Sem a flag, filtra is_active=1; ordena por account_type. |
+| **Efeitos colaterais** | nenhum (leitura). |
+| **Pré-condições** | Tabela account_type_registry existente. |
+
+### `deactivate-account-type`
+
+Soft-disable de um account_type (is_active=0), bloqueado se em uso.
+
+| | |
+|---|---|
+| **Entradas** | --account-type (obrigatório). |
+| **Saídas** | result='deactivated', account_type. |
+| **Regras** | account-type obrigatório; bloqueia se alguma account usa o tipo (conta COUNT em account); erro se o tipo não estava registrado (nenhuma linha alterada). |
+| **Efeitos colaterais** | UPDATE account_type_registry SET is_active=0; audit_log (action 'update'). Leitura em account para checar uso. Sem gl_entry/SLE/PLE. |
+| **Pré-condições** | account_type registrado e não usado por nenhuma conta. |
+
+### `add-voucher-type`
+
+Registra um novo voucher_type para uma tabela-alvo (M0).
+
+| | |
+|---|---|
+| **Entradas** | --voucher-type (obrigatório); --target-table (obrigatório: gl_entry\|stock_ledger_entry\|payment_allocation); --label (default derivado); --skill-name (default 'custom'). |
+| **Saídas** | result='registered', voucher_type, target_table, label. |
+| **Regras** | voucher-type obrigatório; target-table deve ser um dos três alvos válidos; IntegrityError retorna 'já registrado para o alvo'. |
+| **Efeitos colaterais** | INSERT em voucher_type_registry (is_active=1); audit_log (action 'create'). Sem postagens em gl_entry/SLE/PLE. |
+| **Pré-condições** | Tabela voucher_type_registry existente. |
+
+### `list-voucher-types`
+
+Lista voucher types registrados (opcionalmente por target-table).
+
+| | |
+|---|---|
+| **Entradas** | --include-inactive (flag); --target-table (filtro opcional). |
+| **Saídas** | voucher_types (array), count. |
+| **Regras** | Sem a flag filtra is_active=1; filtra por target_table se informado; ordena por target_table, voucher_type. |
+| **Efeitos colaterais** | nenhum (leitura). |
+| **Pré-condições** | Tabela voucher_type_registry existente. |
+
+### `deactivate-voucher-type`
+
+Soft-disable de um voucher_type em uma tabela-alvo, bloqueado se há linhas vivas usando-o.
+
+| | |
+|---|---|
+| **Entradas** | --voucher-type (obrigatório); --target-table (obrigatório, um dos três alvos). |
+| **Saídas** | result='deactivated', voucher_type, target_table. |
+| **Regras** | voucher-type obrigatório; target-table validado; bloqueia se houver linhas na tabela-alvo usando o voucher_type; erro se não registrado para o alvo. |
+| **Efeitos colaterais** | UPDATE voucher_type_registry SET is_active=0 (por voucher_type+target_table); audit_log (action 'update'). Leitura na tabela-alvo para checar uso. Sem novas postagens em gl_entry/SLE/PLE. |
+| **Pré-condições** | voucher_type registrado para o alvo e sem linhas vivas usando-o. |
+
+### `validate-registry-completeness`
+
+Diagnóstico read-only: reporta valores de tipo/status em uso nos dados que não estão registrados+ativos.
+
+| | |
+|---|---|
+| **Entradas** | Nenhuma. |
+| **Saídas** | complete (bool), unregistered_in_use (dict por categoria), detail (explicação). |
+| **Regras** | Cobre account_type, party_type (gl_entry/payment_entry/payment_ledger_entry), voucher_type por alvo e asset_status; tolera tabelas ausentes em instalação mínima. |
+| **Efeitos colaterais** | nenhum (leitura). |
+| **Pré-condições** | Banco inicializado; os registries existentes. |
 
 ## Backup e Restauração
 
-**Objetivo.** Criar, listar, verificar e restaurar backups da base SQLite, com suporte a criptografia AES-256, política de retenção e rollback de segurança na restauração.
+**Objetivo.** Criar, listar, verificar, restaurar e fazer retenção de backups do banco (com cripto opcional).
 
-**Ações:**
-- `backup-database` — Cria backup da base, opcionalmente criptografado (--encrypt --passphrase) com master key embutida.
-- `list-backups` — Lista arquivos de backup (.sqlite e .enc) com tamanho, data e flag de criptografia.
-- `verify-backup` — Valida um backup sem restaurar (SQLite válido, assinatura ERPClaw, integrity_check).
-- `restore-database` — Restaura a base de um backup, com backup de segurança prévio e rollback em caso de falha.
-- `cleanup-backups` — Remove backups antigos por retenção (7 diários, 4 semanais, 12 mensais).
+### `backup-database`
 
-| Campo | Detalhe |
+Cria um backup do banco SQLite, opcionalmente criptografado AES-256.
+
+| | |
 |---|---|
-| **Entradas** | backup-database: --db-path, --backup-path, --encrypt, --passphrase. verify/restore: --backup-path, --passphrase (se .enc). cleanup-backups: sem parâmetros. |
-| **Saídas** | backup: backup_path, size_bytes, encrypted, carries_master_key, timestamp. list: backups[], count, total_size_bytes. verify: valid, integrity, tables, schema_version, encrypted. restore: restored_from, safety_backup, integrity, was_encrypted. cleanup: kept, deleted, freed_bytes. |
-| **Regras de negócio** | --encrypt exige --passphrase. Backups criptografados (ECRYPT02) embutem a master key envelopada para restauração cross-machine. verify exige schema_version e integrity_check='ok'. restore valida o backup, cria safety backup, copia sobre a base e reverifica; qualquer falha faz rollback para o safety backup. cleanup aplica retenção diária/semanal/mensal só a arquivos erpclaw_backup_*.sqlite. |
-| **Efeitos colaterais** | Cria/copia/remove arquivos no diretório de backups (~/.openclaw/erpclaw/backups), com chmod 600. restore-database FECHA a conexão atual, SOBRESCREVE o arquivo data.sqlite e reaplica chmod nos arquivos da base (substituição total dos dados). cleanup/restore gravam audit_log (cleanup; backup/restore não gravam audit). Nenhuma postagem em gl_entry/SLE. |
-| **Pré-condições** | Banco existente para backup. restore/verify exigem arquivo de backup válido e --passphrase para criptografados. Permissões de escrita no diretório de backups e na base. |
+| **Entradas** | --backup-path (default: BACKUP_DIR/erpclaw_backup_<ts>.sqlite\|.enc); --encrypt (flag); --passphrase (obrigatório se --encrypt). |
+| **Saídas** | backup_path, size_bytes, encrypted, timestamp; se criptografado: carries_master_key, original_size. |
+| **Regras** | Erro se --encrypt sem --passphrase. Criptografado: faz backup temp, depois encrypt_file com HMAC; se existe master key local, ela é wrapped com a passphrase e embutida no header (permite restore cross-machine). Define mode 600 no arquivo. |
+| **Efeitos colaterais** | Cria arquivo de backup no filesystem (usa src.backup); não escreve em tabelas do DB; sem audit_log; sem gl_entry/SLE/PLE. |
+| **Pré-condições** | Banco existente; lib crypto/master_key para modo criptografado. |
+
+### `list-backups`
+
+Lista arquivos de backup com tamanho, data e flag de criptografia.
+
+| | |
+|---|---|
+| **Entradas** | Nenhuma. |
+| **Saídas** | backups (array: path, filename, size_bytes, timestamp, encrypted), count, total_size_bytes. |
+| **Regras** | Casa erpclaw_*.sqlite e erpclaw_*.enc; parseia timestamp do nome; ordena reverso (recentes primeiro); retorna vazio se diretório não existe. |
+| **Efeitos colaterais** | nenhum (leitura do filesystem). |
+| **Pré-condições** | Nenhuma (diretório de backups pode não existir). |
+
+### `verify-backup`
+
+Valida um arquivo de backup sem restaurar (SQLite válido, schema ERPClaw, integridade).
+
+| | |
+|---|---|
+| **Entradas** | --backup-path (obrigatório); --passphrase (obrigatório se backup criptografado). |
+| **Saídas** | valid, integrity, tables, schema_module, schema_version, size_bytes, encrypted (ou para .enc sem passphrase: valid=null com mensagem). |
+| **Regras** | Erro se backup-path ausente ou arquivo inexistente; auto-detecta cripto; sem passphrase para .enc retorna valid=null; valida presença de schema_version, roda PRAGMA integrity_check; remove temp descriptografado ao final. |
+| **Efeitos colaterais** | nenhum (leitura/validação; usa arquivo temp efêmero que é apagado). |
+| **Pré-condições** | Arquivo de backup existente; passphrase para criptografados. |
+
+### `restore-database`
+
+Restaura o banco a partir de um backup, com backup de segurança e rollback automático.
+
+| | |
+|---|---|
+| **Entradas** | --backup-path (obrigatório); --passphrase (obrigatório se criptografado); --db-path (alvo, default padrão). |
+| **Saídas** | restored_from, safety_backup, size_bytes, schema_versions, integrity, was_encrypted. |
+| **Regras** | Erro se backup-path ausente/inexistente; cripto exige passphrase; valida schema_version no backup; fecha a conexão atual, cria safety backup, copia backup sobre o DB, roda integrity_check; em qualquer falha faz rollback restaurando o safety backup. |
+| **Efeitos colaterais** | Substitui o arquivo do DB no filesystem; cria safety backup (erpclaw_pre_restore_<ts>.sqlite); ajusta permissões; em falha restaura estado anterior. Não escreve em tabelas via SQL; sem audit_log. |
+| **Pré-condições** | Backup válido ERPClaw; passphrase se criptografado. |
+
+### `cleanup-backups`
+
+Aplica política de retenção (7 diários, 4 semanais, 12 mensais) removendo o excesso.
+
+| | |
+|---|---|
+| **Entradas** | Nenhuma (opera sobre erpclaw_backup_*.sqlite no BACKUP_DIR). |
+| **Saídas** | kept, deleted, freed_bytes. |
+| **Regras** | Parseia timestamps do nome; mantém 7 datas diárias mais recentes, depois 4 semanais (mais antigo por semana) e 12 mensais; deleta o restante; tolera erros de remoção individual. |
+| **Efeitos colaterais** | Remove arquivos de backup do filesystem; audit_log (action 'cleanup', entity 'backup'). Sem gl_entry/SLE/PLE. |
+| **Pré-condições** | Diretório de backups com arquivos no padrão esperado. |
 
 ## Schema e Migrações
 
-**Objetivo.** Inicializar/reinicializar o schema completo do banco e aplicar migrações de evolução de schema registradas em um ledger idempotente.
+**Objetivo.** Inicializar o schema do banco, aplicar migrações de fundação e consultar a versão de schema.
 
-**Ações:**
-- `initialize-database` — Cria todas as tabelas, índices e constraints (CREATE IF NOT EXISTS); --force dropa e recria.
-- `migrate` — Executa migrações pendentes (migrations/NNN_*.py) registrando cada uma no ledger; --dry-run lista sem aplicar.
-- `get-schema-version` — Lê a versão de schema registrada para um módulo.
+### `initialize-database`
 
-| Campo | Detalhe |
+Inicializa (ou re-inicializa com --force) todo o schema do banco ERPClaw.
+
+| | |
 |---|---|
-| **Entradas** | initialize-database: --db-path, --force. migrate: --db-path, --dry-run. get-schema-version: --module (default 'erpclaw-setup'). |
-| **Saídas** | initialize-database: message, db_path, tables, indexes, skills_registered, journal_mode='WAL', foreign_keys='ON', reinitialized. migrate: resultado do runner (aplicadas/pendentes). get-schema-version: module, version, updated_at. |
-| **Regras de negócio** | initialize-database é seguro em base existente (IF NOT EXISTS); --force exige remoção do arquivo antes de recriar. migrate é idempotente e dialect-aware, gravando no ledger erpclaw_schema_migration; falha de uma migração aborta com detalhe. Ambas gerenciam suas próprias conexões (não usam a conexão padrão do router). |
-| **Efeitos colaterais** | initialize-database cria o symlink da lib compartilhada, executa o DDL completo e aplica chmod 600 (data.sqlite, -wal, -shm); com --force REMOVE o arquivo da base existente. migrate altera estrutura de tabelas (rebuilds) e insere linhas no ledger de migração. Nenhuma postagem em gl_entry/SLE; não grava audit_log. |
-| **Pré-condições** | Diretório/permissões de escrita da base. Módulo init_schema e migration_runner co-localizados. get-schema-version exige a tabela schema_version povoada. |
+| **Entradas** | --db-path (default padrão); --force (flag: dropa e recria do zero). |
+| **Saídas** | message, db_path, tables, indexes, skills_registered, journal_mode (WAL), foreign_keys (ON), reinitialized. |
+| **Regras** | Usa CREATE TABLE IF NOT EXISTS (idempotente); com --force remove o arquivo e recria; symlinka a lib compartilhada; ajusta permissões 600; verifica recontando tabelas/índices. Gerencia sua própria conexão (não usa a conexão padrão do dispatch). |
+| **Efeitos colaterais** | Cria/recria todas as tabelas e índices via init_schema.init_db; com --force remove o arquivo do DB; symlinka ~/.openclaw/erpclaw/lib; chmod nos arquivos do DB. Sem audit_log; sem gl_entry/SLE/PLE. |
+| **Pré-condições** | Módulo init_schema disponível; permissão de escrita no caminho do DB. |
+
+### `migrate`
+
+Executa migrações pendentes da fundação (migrations/NNN_*.py), registrando-as no ledger.
+
+| | |
+|---|---|
+| **Entradas** | --db-path (default padrão); --dry-run (flag: lista pendentes sem aplicar). |
+| **Saídas** | Resultado do runner (ex.: migrações aplicadas/pendentes); em falha, erro com nome da migração e detalhe. |
+| **Regras** | Idempotente e dialect-aware; --dry-run apenas lista; falha de migração retorna erro com suggestion. Gerencia suas próprias conexões via db_path (não usa a conexão do dispatch). |
+| **Efeitos colaterais** | Aplica DDL/DML das migrações e grava em erpclaw_schema_migration (ledger). Com --dry-run: nenhum. Sem audit_log; efeitos dependem das migrações. |
+| **Pré-condições** | migration_runner.py e arquivos de migração presentes; DB existente. |
+
+### `get-schema-version`
+
+Lê a versão de schema registrada para um módulo.
+
+| | |
+|---|---|
+| **Entradas** | --module (default 'erpclaw-setup'). |
+| **Saídas** | module, version, updated_at. |
+| **Regras** | Erro se não houver versão registrada para o módulo. |
+| **Efeitos colaterais** | nenhum (leitura). |
+| **Pré-condições** | Tabela schema_version populada (via initialize-database). |
 
 ## Dados Padrão e Onboarding
 
-**Objetivo.** Carregar dados-semente padrão (moedas, UoMs, condições de pagamento) e conduzir a configuração inicial via tutorial demo ou wizard interativo de onboarding.
+**Objetivo.** Semear dados padrão, criar empresa-demo de tutorial e conduzir o assistente de onboarding passo-a-passo.
 
-**Ações:**
-- `seed-defaults` — Carrega seeds padrão de currency/uom/payment_terms a partir dos assets JSON (idempotente).
-- `tutorial` — Cria a empresa demo 'Acme Corp' com plano de contas mínimo, centro de custo e ano fiscal (idempotente).
-- `onboarding-step` — Wizard interativo state-machine (nome->moeda->mês fiscal->demo) que ao final cria empresa, seeds e plano de contas.
+### `seed-defaults`
 
-| Campo | Detalhe |
+Carrega dados padrão (moedas, UoMs, condições de pagamento) de forma idempotente.
+
+| | |
 |---|---|
-| **Entradas** | seed-defaults: --company-id (default 1ª empresa). tutorial: sem parâmetros. onboarding-step: --answer (resposta do passo), --reset (reinicia do passo 1). |
-| **Saídas** | seed-defaults: currencies_seeded, uoms_seeded, payment_terms_seeded. tutorial: company_id, accounts_created, fiscal_year, cost_center, next_steps[]. onboarding-step: step, completed, prompt, options, field e (no fim) results com steps_completed/steps_failed. |
-| **Regras de negócio** | seed-defaults usa INSERT OR IGNORE (não duplica). tutorial é idempotente: se 'Acme Corp' existe, retorna dados existentes. onboarding valida moeda (lista fixa USD/EUR/GBP/CAD/INR/SGD/AED) e mês 1-12; persiste estado em arquivo JSON; no passo final dispara subprocessos (setup-company, seed-defaults, setup-chart-of-accounts via erpclaw-gl, seed-demo-data) registrando sucesso/falha por passo. |
-| **Efeitos colaterais** | seed-defaults: INSERT OR IGNORE em currency/uom/payment_terms + audit_log (seed). tutorial: INSERT em company/account (plano de contas)/cost_center/fiscal_year + UPDATE contas-padrão + audit_log (create). onboarding: grava arquivo de estado ~/.openclaw/erpclaw/onboarding_state.json e executa db_query.py de outras skills via subprocess. Nenhuma postagem direta em gl_entry/SLE. |
-| **Pré-condições** | Banco inicializado. seed-defaults exige uma empresa existente e os arquivos de assets (currencies.json, default_uom.json, default_payment_terms.json). onboarding com demo depende das skills erpclaw-gl/erpclaw presentes (passos faltantes são reportados como falhos, não fatais). |
+| **Entradas** | --company-id (default: primeira empresa). |
+| **Saídas** | currencies_seeded, uoms_seeded, payment_terms_seeded (contagens). |
+| **Regras** | Sem company-id usa a primeira; erro se nenhuma empresa existir; lê JSONs de ASSETS_DIR; usa INSERT OR IGNORE (idempotente). |
+| **Efeitos colaterais** | INSERT OR IGNORE em currency, uom e payment_terms; audit_log (action 'seed', entity 'system'). Sem gl_entry/SLE/PLE. |
+| **Pré-condições** | Pelo menos uma empresa; arquivos de assets presentes. |
+
+### `tutorial`
+
+Cria a empresa-demo 'Acme Corp' com plano de contas mínimo, centro de custo e ano fiscal.
+
+| | |
+|---|---|
+| **Entradas** | Nenhuma flag relevante (idempotente). |
+| **Saídas** | message, company_id, accounts_created (ou accounts), fiscal_year, cost_center, next_steps; se já existe: message + accounts + next_steps. |
+| **Regras** | Idempotente: se 'Acme Corp' já existe, retorna dados existentes; senão cria empresa, ~21 contas (plano fixo), define contas padrão da empresa, cost center 'Main' e fiscal year do ano corrente. |
+| **Efeitos colaterais** | INSERT em company, account (várias), cost_center, fiscal_year; UPDATE company (contas e cost center padrão); audit_log (action 'create', entity 'company'). Sem postagens em gl_entry/SLE/PLE. |
+| **Pré-condições** | Banco inicializado. |
+
+### `onboarding-step`
+
+Assistente de onboarding por estado (state-machine) que avança um passo por chamada.
+
+| | |
+|---|---|
+| **Entradas** | --answer (resposta do passo atual); --reset (flag: reinicia no passo 1). |
+| **Saídas** | step, completed, prompt, options, field; ao final: company_id, currency, fiscal_month, load_demo, results (steps_completed/steps_failed). |
+| **Regras** | Estado persistido em ~/.openclaw/erpclaw/onboarding_state.json. Passos: 1 nome; 2 moeda (validada contra VALID_CURRENCIES); 3 mês fiscal (1-12); 4 demo (yes/no). Passo 4 executa subprocessos: setup-company, seed-defaults, setup-chart-of-accounts (erpclaw-gl, us_gaap) e, se demo, seed-demo-data (erpclaw meta). Falhas de subpasso vão para steps_failed sem abortar. |
+| **Efeitos colaterais** | Escreve/limpa o arquivo de estado de onboarding (filesystem). Dispara subprocessos que, por sua vez, gravam em company, account, currency/uom/payment_terms e demo data, e seus próprios audit_log. Esta ação em si não escreve diretamente em tabelas. |
+| **Pré-condições** | Banco inicializado; scripts erpclaw-gl/erpclaw para os passos C/D (opcionais). |
 
 ## Config. Regionais/Avançadas
 
-**Objetivo.** Definir configurações regionais por empresa (formato de data/número, template de imposto padrão) persistidas com upsert por chave.
+**Objetivo.** Definir configurações regionais por empresa e configurar a conta de adiantamento (advance) de cliente/fornecedor.
 
-**Ações:**
-- `update-regional-settings` — Define/atualiza configurações regionais da empresa (date_format, number_format, default_tax_template_id) via upsert chave/valor.
+### `update-regional-settings`
 
-| Campo | Detalhe |
+Define configurações regionais da empresa (formato de data/número, template fiscal padrão).
+
+| | |
 |---|---|
-| **Entradas** | --company-id (default 1ª empresa), --date-format, --number-format, --default-tax-template-id. |
-| **Saídas** | updated: lista das chaves atualizadas. |
-| **Regras de negócio** | Sem nenhuma configuração informada retorna erro. Cada par chave/valor é gravado por UPSERT em regional_settings com ON CONFLICT(company_id, key) atualizando value e updated_at. Default para a primeira empresa quando --company-id ausente. |
-| **Efeitos colaterais** | INSERT/UPSERT em regional_settings. Grava audit_log (update). Nenhuma postagem em gl_entry/SLE. |
-| **Pré-condições** | Banco inicializado e ao menos uma empresa existente. default_tax_template_id deve referenciar um template de imposto válido se usado por outras skills. |
+| **Entradas** | --company-id (default: primeira empresa); --date-format; --number-format; --default-tax-template-id (ao menos um obrigatório). |
+| **Saídas** | updated (lista de chaves atualizadas). |
+| **Regras** | Sem company-id usa a primeira; erro se nenhuma empresa; erro 'No settings to update' se nada informado; faz upsert por (company_id, key). |
+| **Efeitos colaterais** | INSERT/UPDATE (ON CONFLICT) em regional_settings; audit_log (action 'update', entity 'regional_settings'). Sem gl_entry/SLE/PLE. |
+| **Pré-condições** | Pelo menos uma empresa; tabela regional_settings. |
+
+### `set-advance-account`
+
+Configura a sub-conta de adiantamento (advance) de cliente ou fornecedor na empresa (S2).
+
+| | |
+|---|---|
+| **Entradas** | --company-id (obrigatório); --account-id (obrigatório); --type (obrigatório: customer\|supplier). |
+| **Saídas** | result='set', company_id, type, column (advance_from_customer_account_id ou advance_to_supplier_account_id), account_id. |
+| **Regras** | Todos obrigatórios; type validado; empresa e conta devem existir; conta não pode ser de grupo; para customer exige root_type 'liability', para supplier exige 'asset'. Quando setada, submit-payment roteia a perna de adiantamento não-alocado para esta conta. |
+| **Efeitos colaterais** | UPDATE company (coluna advance_*_account_id allowlistada + updated_at, via dynamic_update); audit_log (action 'update', entity 'company'). Sem gl_entry/SLE/PLE. |
+| **Pré-condições** | Empresa e conta (folha, root_type correto) existentes. |
 
 ## Auditoria/Status/Chave-Mestra
 
-**Objetivo.** Consultar a trilha de auditoria, reportar o status geral do sistema e gerenciar a chave-mestra de criptografia em cenários de restauração entre máquinas.
+**Objetivo.** Consultar trilha de auditoria e status do sistema e importar a chave-mestra de criptografia de um backup.
 
-**Ações:**
-- `get-audit-log` — Consulta a trilha de auditoria com filtros por entidade, ação e período.
-- `status` — Reporta contagens de empresas, moedas habilitadas, UoMs, condições de pagamento e versões de schema.
-- `import-master-key-from-backup` — Extrai e instala a chave-mestra envelopada de um backup ECRYPT02 (restauração cross-machine).
+### `get-audit-log`
 
-| Campo | Detalhe |
+Consulta a trilha de auditoria com filtros opcionais.
+
+| | |
 |---|---|
-| **Entradas** | get-audit-log: --entity-type, --entity-id, --audit-action, --from-date, --to-date, --limit (default 50). status: sem parâmetros. import-master-key-from-backup: --backup-path + passphrase (--passphrase \| --passphrase-from-stdin \| --passphrase-from-env VAR), --force. |
-| **Saídas** | get-audit-log: entries[] (com old_values/new_values em JSON parseado), ordenadas desc por timestamp. status: companies, currencies, uoms, payment_terms, schema_versions{}. import-master-key: message, master_key_path, next. |
-| **Regras de negócio** | get-audit-log e status são somente leitura. import-master-key exige backup formato ECRYPT02 que carregue a chave envelopada; desenvelopa com a passphrase (erra se não casar); recusa sobrescrever chave existente sem --force (overwrite invalida dados encriptados pela chave antiga). |
-| **Efeitos colaterais** | get-audit-log e status: nenhum (somente leitura). import-master-key-from-backup: lê o header do backup e ESCREVE o arquivo ~/.config/erpclaw/master.key (mode 0600), opcionalmente removendo a chave existente com --force; não grava audit_log. Nenhuma postagem em gl_entry/SLE. |
-| **Pré-condições** | Banco inicializado para status/audit. import-master-key exige arquivo de backup ECRYPT02 acessível com chave-mestra embutida (backups de fundação >= v4.1.3) e a passphrase usada no envelopamento. |
+| **Entradas** | --entity-type, --entity-id, --audit-action, --from-date, --to-date (filtros opcionais); --limit (default 50). |
+| **Saídas** | entries (array de registros de auditoria, com old_values/new_values já parseados de JSON). |
+| **Regras** | Aplica filtros conforme flags; ordena por timestamp desc; faz parse dos campos JSON old_values/new_values. |
+| **Efeitos colaterais** | nenhum (leitura). |
+| **Pré-condições** | Tabela audit_log existente. |
+
+### `status`
+
+Retorna o status geral do sistema (contagens e versões de schema).
+
+| | |
+|---|---|
+| **Entradas** | Nenhuma. |
+| **Saídas** | companies, currencies (habilitadas), uoms, payment_terms, schema_versions (dict módulo->versão). |
+| **Regras** | Conta company, currency (enabled=1), uom, payment_terms; lê todas as linhas de schema_version. |
+| **Efeitos colaterais** | nenhum (leitura). |
+| **Pré-condições** | Banco inicializado. |
+
+### `import-master-key-from-backup`
+
+Extrai a chave-mestra de criptografia embutida em um backup e a instala localmente (restore cross-machine).
+
+| | |
+|---|---|
+| **Entradas** | --backup-path (obrigatório); passphrase via --passphrase OU --passphrase-from-stdin OU --passphrase-from-env <VAR> (uma obrigatória); --force (flag: sobrescreve chave existente). |
+| **Saídas** | message, master_key_path, next (orientação para restore). |
+| **Regras** | backup-path obrigatório e arquivo deve existir; exige passphrase não-vazia; backup deve ser formato ECRYPT02 e carregar wrapped master key (senão erro); passphrase errada falha o unwrap; recusa sobrescrever chave existente sem --force (com aviso de perda de dados). |
+| **Efeitos colaterais** | Escreve o arquivo master.key em ~/.config/erpclaw (MASTER_KEY_PATH); com --force remove a chave existente antes. Não escreve em tabelas do DB; sem audit_log; sem gl_entry/SLE/PLE. |
+| **Pré-condições** | Backup ECRYPT02 com chave embutida; passphrase de wrapping correta; ausência de master key (ou --force). |
 

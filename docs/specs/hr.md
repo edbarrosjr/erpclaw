@@ -1,211 +1,520 @@
 # Recursos Humanos — `erpclaw-hr`
 
-> Specs funcionais (enxutas) por funcionalidade. Geradas do código: `scripts/erpclaw-hr/db_query.py`. 12 funcionalidades · 39 ações.
+> Spec funcional por ação. Gerada de `scripts/erpclaw-hr/db_query.py`. 12 funcionalidades · 39 ações.
 
 ## Funcionários
 
-**Objetivo.** Cadastrar, atualizar, consultar e listar funcionários, incluindo dados pessoais, vínculo organizacional e parâmetros fiscais/folha (W4, FICA, 401k, HSA).
+**Objetivo.** Cadastro, atualização e consulta de funcionários e seus dados de RH/folha.
 
-**Ações:**
-- `add-employee` — Cria funcionário com status 'active', gera naming_series e calcula full_name.
-- `update-employee` — Atualização dinâmica de campos do funcionário (nome, datas, status, FKs, campos fiscais/folha).
-- `get-employee` — Retorna o funcionário com nomes de depto/cargo/grade/lista de feriados e resumos derivados.
-- `list-employees` — Lista paginada com filtros e busca textual.
+### `add-employee`
 
-| Campo | Detalhe |
+Cria um novo registro de funcionário com status inicial 'active'.
+
+| | |
 |---|---|
-| **Entradas** | add: --first-name, --date-of-joining, --company-id (obrigatórios) + opcionais (--last-name, --gender, --employment-type, --department-id, --designation-id, --employee-grade-id, --reporting-to, --emergency-contact/--bank-details JSON, --federal-filing-status, --w4-allowances, --holiday-list-id, --payroll-cost-center-id). update: --employee-id + qualquer campo opcional. get: --employee-id. list: --company-id, --department-id, --designation-id, --status, --employment-type, --search, --limit(20), --offset(0). |
-| **Saídas** | add: employee_id, naming_series, full_name. update: employee_id, updated_fields. get: objeto employee (com emergency_contact/bank_details em JSON parseado), leave_balances do ano fiscal corrente, attendance_summary do mês corrente, reporting_to_name e direct_reports_count. list: lista de funcionários, total_count, paginação e has_more. |
-| **Regras de negócio** | Validações: gênero em VALID_GENDERS; employment_type em VALID_EMPLOYMENT_TYPES (default full_time); status em VALID_EMPLOYEE_STATUSES; datas ISO YYYY-MM-DD; e-mails por regex; FKs (depto, cargo, grade, gestor, holiday_list, cost_center) devem existir. Funcionário não pode reportar a si mesmo. update exige ao menos um campo; full_name recalculado quando nome muda. |
-| **Efeitos colaterais** | add-employee: INSERT em employee + INSERT de evento de ciclo de vida 'hiring' (employee_lifecycle_event) + auditoria. update-employee: UPDATE em employee + auditoria com old/new values. get-employee e list-employees: nenhum (somente leitura). Sem postagens no GL ou estoque. |
-| **Pré-condições** | Empresa (company) deve existir; tabela 'company' é dependência obrigatória (REQUIRED_TABLES). FKs referenciadas (departamento, cargo, grade, gestor, holiday_list, cost_center) precisam existir previamente quando informadas. |
+| **Entradas** | --first-name (obrigatório), --date-of-joining (obrigatório), --company-id (obrigatório); opcionais: --last-name, --date-of-birth, --gender, --employment-type (default full_time), --department-id, --designation-id, --employee-grade-id, --branch, --reporting-to, --company-email, --personal-email, --cell-phone, --emergency-contact (JSON), --bank-details (JSON), --federal-filing-status, --w4-allowances (default 0), --holiday-list-id, --payroll-cost-center-id. |
+| **Saídas** | employee_id, naming_series, full_name, message. |
+| **Regras** | Valida existência de company e dos FKs informados (department/designation/grade/reporting-to/holiday-list/cost-center); valida gender, employment_type e federal_filing_status contra listas válidas; valida formatos de datas (YYYY-MM-DD) e de e-mails (regex); calcula full_name = first+last; gera naming_series via get_next_name; status fixo 'active'. |
+| **Efeitos colaterais** | INSERT em employee; INSERT em employee_lifecycle_event (event_type='hiring'); audit_log via audit(); commit. |
+| **Pré-condições** | Company existente; FKs referenciados (se informados) devem existir. |
+
+### `update-employee`
+
+Atualiza dinamicamente campos de um funcionário existente.
+
+| | |
+|---|---|
+| **Entradas** | --employee-id (obrigatório); opcionais (qualquer subconjunto): --first-name, --last-name, --date-of-birth, --gender, --date-of-joining, --date-of-exit, --employment-type, --status, --department-id, --designation-id, --employee-grade-id, --branch, --reporting-to, --company-email, --personal-email, --cell-phone, --emergency-contact, --bank-details, --federal-filing-status, --w4-allowances, --w4-additional-withholding, --state-filing-status, --state-withholding-allowances, --employee-401k-rate, --hsa-contribution, --is-exempt-from-fica, --salary-structure-id, --leave-policy-id, --shift-id, --holiday-list-id, --attendance-device-id, --payroll-cost-center-id. |
+| **Saídas** | employee_id, updated_fields (lista de campos alterados), message. |
+| **Regras** | Funcionário deve existir; recomputa full_name se nome muda; valida formatos de data/e-mail e enums (gender/employment_type/status/federal_filing_status); impede reporting_to == próprio employee; FKs validados quando não-vazios; erro se nenhum campo a atualizar. |
+| **Efeitos colaterais** | UPDATE em employee (dynamic_update, inclui updated_at); audit_log com old/new values; commit. |
+| **Pré-condições** | Funcionário existente; FKs informados devem existir. |
+
+### `get-employee`
+
+Retorna detalhes de um funcionário com saldos de férias, resumo de ponto e cadeia de reporte.
+
+| | |
+|---|---|
+| **Entradas** | --employee-id (obrigatório). |
+| **Saídas** | employee (linha completa com department_name, designation_name, employee_grade_name, holiday_list_name, emergency_contact/bank_details parseados, leave_balances do ano fiscal corrente, attendance_summary do mês corrente, reporting_to_name, direct_reports_count). |
+| **Regras** | Erro se funcionário não existir; parseia JSON de emergency_contact/bank_details; saldos de férias só preenchidos se houver ano fiscal aberto para hoje; resumo de ponto agrega o mês corrente. |
+| **Efeitos colaterais** | nenhum (leitura). |
+| **Pré-condições** | Funcionário existente. |
+
+### `list-employees`
+
+Lista funcionários com filtros e paginação.
+
+| | |
+|---|---|
+| **Entradas** | Opcionais: --company-id, --department-id, --designation-id, --status, --employment-type, --search (full_name/naming_series/company_email/cell_phone), --limit (default 20), --offset (default 0). |
+| **Saídas** | employees (com department_name/designation_name), total_count, limit, offset, has_more. |
+| **Regras** | Valida status e employment_type contra enums quando informados; ordena por full_name; busca via LIKE em 4 campos. |
+| **Efeitos colaterais** | nenhum (leitura). |
+| **Pré-condições** | Nenhuma (tabela company exigida na dependência do módulo). |
 
 ## Estrutura Org.
 
-**Objetivo.** Gerir a estrutura organizacional: departamentos (hierárquicos, por empresa) e designações/cargos (job titles globais).
+**Objetivo.** Gestão de departamentos e cargos (designações) da organização.
 
-**Ações:**
-- `add-department` — Cria departamento vinculado a empresa, com pai e cost center opcionais.
-- `list-departments` — Lista departamentos com nome do pai, da empresa e contagem de funcionários ativos.
-- `add-designation` — Cria designação (cargo) com nome único global.
-- `list-designations` — Lista designações com contagem de funcionários ativos por cargo.
+### `add-department`
 
-| Campo | Detalhe |
+Cria um novo departamento dentro de uma empresa.
+
+| | |
 |---|---|
-| **Entradas** | add-department: --name, --company-id (obrig.) + --parent-id, --cost-center-id. list-departments: --company-id, --parent-id, --limit, --offset. add-designation: --name (obrig.) + --description. list-designations: --limit, --offset. |
-| **Saídas** | add-department: department_id, name. list-departments: departments (com parent_name, company_name, employee_count), total_count, paginação. add-designation: designation_id, name. list-designations: designations (com employee_count), total_count, paginação. |
-| **Regras de negócio** | Departamento: empresa deve existir; pai (se informado) deve existir e pertencer à mesma empresa; cost center deve existir; nome único por empresa. Designação: nome é UNIQUE global (duplicidade rejeitada). Contagens consideram apenas funcionários com status 'active'. |
-| **Efeitos colaterais** | add-department: INSERT em department + auditoria. add-designation: INSERT em designation + auditoria. list-*: nenhum (somente leitura). Sem GL/estoque. |
-| **Pré-condições** | Empresa deve existir para departamento. Cost center e departamento pai (quando usados) precisam existir. Designação não depende de empresa. |
+| **Entradas** | --name (obrigatório), --company-id (obrigatório); opcionais: --parent-id, --cost-center-id. |
+| **Saídas** | department_id, name, message. |
+| **Regras** | Valida company; valida parent (deve existir e pertencer à mesma company); valida cost_center se informado; impede nome duplicado dentro da mesma company. |
+| **Efeitos colaterais** | INSERT em department; audit_log; commit. |
+| **Pré-condições** | Company existente; parent/cost-center (se informados) existentes. |
+
+### `list-departments`
+
+Lista departamentos com nome do pai, da empresa e contagem de funcionários ativos.
+
+| | |
+|---|---|
+| **Entradas** | Opcionais: --company-id, --parent-id, --limit (default 20), --offset (default 0). |
+| **Saídas** | departments (com parent_name, company_name, employee_count), total_count, limit, offset, has_more. |
+| **Regras** | Conta apenas funcionários com status 'active' por departamento; ordena por name. |
+| **Efeitos colaterais** | nenhum (leitura). |
+| **Pré-condições** | Nenhuma. |
+
+### `add-designation`
+
+Cria uma nova designação (cargo/título).
+
+| | |
+|---|---|
+| **Entradas** | --name (obrigatório); opcional: --description. |
+| **Saídas** | designation_id, name, message. |
+| **Regras** | designation.name é UNIQUE: erro se já existir. |
+| **Efeitos colaterais** | INSERT em designation; audit_log; commit. |
+| **Pré-condições** | Nenhuma. |
+
+### `list-designations`
+
+Lista todas as designações com contagem de funcionários ativos.
+
+| | |
+|---|---|
+| **Entradas** | Opcionais: --limit (default 20), --offset (default 0). |
+| **Saídas** | designations (com employee_count), total_count, limit, offset, has_more. |
+| **Regras** | Conta apenas funcionários 'active' por designação; ordena por name. |
+| **Efeitos colaterais** | nenhum (leitura). |
+| **Pré-condições** | Nenhuma. |
 
 ## Tipos/Alocação de Férias
 
-**Objetivo.** Definir tipos de licença/férias e suas regras (pago, carry-forward, compensatório, carência) e alocar saldos por funcionário e ano fiscal, incluindo transporte de saldo do ano anterior.
+**Objetivo.** Definição de tipos de férias/licença e alocação anual de dias por funcionário, incluindo saldos.
 
-**Ações:**
-- `add-leave-type` — Cria tipo de licença com limites e flags (pago, carry-forward, compensatório, carência).
-- `list-leave-types` — Lista os tipos de licença cadastrados.
-- `add-leave-allocation` — Aloca dias de licença ao funcionário num ano fiscal, aplicando carry-forward quando habilitado.
-- `get-leave-balance` — Retorna o saldo por tipo de licença, com dias pendentes em rascunho.
+### `add-leave-type`
 
-| Campo | Detalhe |
+Cria um novo tipo de licença/férias com regras de dias e carry-forward.
+
+| | |
 |---|---|
-| **Entradas** | add-leave-type: --name, --max-days-allowed (obrig.) + --is-paid-leave(1), --is-carry-forward(0), --max-carry-forward-days, --is-compensatory(0), --applicable-after-days(0). add-leave-allocation: --employee-id, --leave-type-id, --total-leaves, --fiscal-year (obrig.). get-leave-balance: --employee-id (obrig.) + --leave-type-id, --fiscal-year. |
-| **Saídas** | add-leave-type: leave_type_id, name, max_days_allowed. add-leave-allocation: allocation_id, total/used/remaining_leaves, e carry_forwarded/carry_forwarded_from quando aplicável. get-leave-balance: balances por tipo (total/used/remaining + pending_days em rascunho), fiscal_year, total_count. |
-| **Regras de negócio** | leave_type.name é UNIQUE; max_days_allowed > 0; flags 0/1; max_carry_forward_days >= 0; applicable_after_days >= 0. Alocação: funcionário/tipo/ano fiscal devem existir; total_leaves >= 0; impede alocação duplicada (mesmo emp+tipo+ano). Carry-forward: se o tipo permite, busca alocação do ano anterior e soma remaining_leaves (limitado a max_carry_forward_days). remaining = total - used (used inicia 0). |
-| **Efeitos colaterais** | add-leave-type: INSERT em leave_type + auditoria. add-leave-allocation: INSERT em leave_allocation (com carry_forwarded_from) + auditoria. list/get: nenhum (somente leitura). Sem GL/estoque. |
-| **Pré-condições** | Para alocação: funcionário, leave_type e fiscal_year (registro em fiscal_year) devem existir. get-leave-balance usa o ano fiscal aberto corrente quando não informado. |
+| **Entradas** | --name (obrigatório), --max-days-allowed (obrigatório); opcionais: --is-paid-leave (default 1), --is-carry-forward (default 0), --max-carry-forward-days, --is-compensatory (default 0), --applicable-after-days (default 0). |
+| **Saídas** | leave_type_id, name, max_days_allowed, message. |
+| **Regras** | max_days_allowed deve ser > 0; leave_type.name é UNIQUE; flags booleanas restritas a 0/1; max_carry_forward_days >= 0; applicable_after_days inteiro >= 0. |
+| **Efeitos colaterais** | INSERT em leave_type; audit_log; commit. |
+| **Pré-condições** | Nenhuma. |
+
+### `list-leave-types`
+
+Lista todos os tipos de licença/férias.
+
+| | |
+|---|---|
+| **Entradas** | Opcionais: --limit (default 20), --offset (default 0). |
+| **Saídas** | leave_types (campos completos), total_count, limit, offset, has_more. |
+| **Regras** | Ordena por name. |
+| **Efeitos colaterais** | nenhum (leitura). |
+| **Pré-condições** | Nenhuma. |
+
+### `add-leave-allocation`
+
+Aloca dias de férias a um funcionário para um ano fiscal, aplicando carry-forward quando configurado.
+
+| | |
+|---|---|
+| **Entradas** | --employee-id (obrigatório), --leave-type-id (obrigatório), --total-leaves (obrigatório), --fiscal-year (obrigatório). |
+| **Saídas** | allocation_id, employee_id, leave_type, fiscal_year, total_leaves, used_leaves, remaining_leaves, message; (carry_forwarded, carry_forwarded_from se aplicável). |
+| **Regras** | Valida employee, leave_type e existência do fiscal_year; total_leaves >= 0; impede alocação duplicada (employee+leave_type+fiscal_year); se leave_type.is_carry_forward, soma remaining da alocação do ano anterior (limitado por max_carry_forward_days); used_leaves=0 e remaining=total na criação. |
+| **Efeitos colaterais** | INSERT em leave_allocation; audit_log; commit. |
+| **Pré-condições** | Funcionário, tipo de licença e ano fiscal (por nome) existentes; sem alocação prévia para a mesma combinação. |
+
+### `get-leave-balance`
+
+Retorna o saldo de férias de um funcionário por tipo no ano fiscal.
+
+| | |
+|---|---|
+| **Entradas** | --employee-id (obrigatório); opcionais: --leave-type-id, --fiscal-year (default ano fiscal corrente). |
+| **Saídas** | employee_id, fiscal_year, balances (allocation_id, leave_type_id/name, is_paid_leave, total/used/remaining_leaves, pending_days), total_count. |
+| **Regras** | Funcionário deve existir; se fiscal_year omitido usa o ano fiscal aberto de hoje (erro se inexistente); valida leave_type se filtrado; calcula pending_days somando total_days de leave_application em status 'draft'. |
+| **Efeitos colaterais** | nenhum (leitura). |
+| **Pré-condições** | Funcionário existente; ano fiscal aberto se não informado. |
 
 ## Solicitações de Férias
 
-**Objetivo.** Gerir o ciclo de solicitações de licença/férias: criação (rascunho), aprovação com baixa de saldo, rejeição e consulta.
+**Objetivo.** Ciclo de vida das solicitações de férias: criação (rascunho), aprovação, rejeição e listagem.
 
-**Ações:**
-- `add-leave-application` — Cria solicitação em 'draft' calculando dias úteis (excluindo fins de semana e feriados).
-- `approve-leave` — Aprova solicitação 'draft' e deduz used/remaining da alocação.
-- `reject-leave` — Rejeita solicitação em 'draft'.
-- `list-leave-applications` — Lista solicitações com nomes de funcionário, tipo e aprovador.
+### `add-leave-application`
 
-| Campo | Detalhe |
+Cria uma solicitação de férias em status 'draft' calculando dias úteis.
+
+| | |
 |---|---|
-| **Entradas** | add: --employee-id, --leave-type-id, --from-date, --to-date (obrig.) + --half-day(0/1), --half-day-date, --reason. approve: --leave-application-id, --approved-by (obrig.). reject: --leave-application-id (obrig.) + --reason. list: --employee-id, --status, --from-date, --to-date, --leave-type-id, --limit, --offset. |
-| **Saídas** | add: leave_application_id, naming_series, total_days, half_day, status 'draft', holidays_excluded. approve: status 'approved', approver_name, total_days, leave_type. reject: status 'rejected', rejection_reason. list: leave_applications + total_count e paginação. |
-| **Regras de negócio** | Ciclo: draft -> approved \| rejected. add: funcionário deve estar 'active'; from <= to; half-day-date dentro do intervalo; respeita applicable_after_days do tipo; total_days = dias úteis excluindo feriados (- 0,5 se half-day) e deve ser > 0; valida saldo suficiente na alocação; bloqueia sobreposição com solicitações draft/approved. approve: exige status 'draft', aprovador válido, não pode aprovar a própria; deduz da alocação e bloqueia saldo negativo (rollback). reject: exige status 'draft'. |
-| **Efeitos colaterais** | add: INSERT em leave_application (status draft) + auditoria. approve: UPDATE leave_application (approved, approved_by) + UPDATE leave_allocation (used += total_days, remaining -= total_days) + auditoria. reject: UPDATE leave_application (rejected) + auditoria. list: nenhum (somente leitura). Sem GL/estoque. |
-| **Pré-condições** | Funcionário ativo e tipo de licença existentes; alocação de licença para o ano fiscal da from-date (approve faz rollback se não houver alocação ou ano fiscal aberto). Feriados via lista do funcionário ou da empresa. |
+| **Entradas** | --employee-id (obrigatório), --leave-type-id (obrigatório), --from-date (obrigatório), --to-date (obrigatório); opcionais: --half-day (0/1), --half-day-date (default from-date), --reason. |
+| **Saídas** | leave_application_id, naming_series, employee_id, leave_type, from_date, to_date, total_days, half_day, status='draft', holidays_excluded, message. |
+| **Regras** | Funcionário deve estar 'active'; valida datas e from<=to; total_days = dias úteis (exclui fins de semana e feriados do funcionário, -0.5 se half_day); erro se total_days<=0; respeita applicable_after_days do tipo; checa saldo na leave_allocation do ano fiscal (erro se insuficiente ou sem alocação); impede sobreposição com applications draft/approved; gera naming_series. |
+| **Efeitos colaterais** | INSERT em leave_application (status draft); audit_log; commit. |
+| **Pré-condições** | Funcionário ativo; leave_type existente; alocação de férias no ano fiscal do from-date. |
+
+### `approve-leave`
+
+Aprova uma solicitação de férias em rascunho e deduz o saldo alocado.
+
+| | |
+|---|---|
+| **Entradas** | --leave-application-id (obrigatório), --approved-by (obrigatório). |
+| **Saídas** | leave_application_id, status='approved', approved_by, approver_name, total_days, leave_type, message. |
+| **Regras** | Application deve existir e estar 'draft'; approved_by deve ser funcionário válido e diferente do solicitante; deduz used_leaves += e remaining_leaves -= na leave_allocation do ano fiscal; rollback+erro se saldo ficaria negativo, sem alocação ou sem ano fiscal aberto. |
+| **Efeitos colaterais** | UPDATE leave_application (status/approved_by); UPDATE leave_allocation (used/remaining); audit_log; commit. |
+| **Pré-condições** | Application em 'draft'; aprovador válido; alocação existente no ano fiscal. |
+
+### `reject-leave`
+
+Rejeita uma solicitação de férias em rascunho.
+
+| | |
+|---|---|
+| **Entradas** | --leave-application-id (obrigatório); opcional: --reason (default 'No reason provided'). |
+| **Saídas** | leave_application_id, status='rejected', leave_type, employee_id, rejection_reason, message. |
+| **Regras** | Application deve existir e estar 'draft'; não altera saldo de alocação. |
+| **Efeitos colaterais** | UPDATE leave_application (status='rejected'); audit_log; commit. |
+| **Pré-condições** | Application em 'draft'. |
+
+### `list-leave-applications`
+
+Lista solicitações de férias com filtros e paginação.
+
+| | |
+|---|---|
+| **Entradas** | Opcionais: --employee-id, --status, --leave-type-id, --from-date, --to-date, --limit (default 20), --offset (default 0). |
+| **Saídas** | leave_applications (com employee_name/series, leave_type_name, approved_by_name), total_count, limit, offset, has_more. |
+| **Regras** | Valida status contra VALID_LEAVE_STATUSES quando informado; ordena por created_at desc; from-date filtra >=, to-date filtra <=. |
+| **Efeitos colaterais** | nenhum (leitura). |
+| **Pré-condições** | Nenhuma. |
 
 ## Ponto
 
-**Objetivo.** Registrar e consultar marcações de ponto/presença por funcionário e data, individualmente ou em lote.
+**Objetivo.** Registro de presença (individual e em lote) e consulta de ponto dos funcionários.
 
-**Ações:**
-- `mark-attendance` — Marca o ponto de um funcionário numa data com status, horários e flags.
-- `bulk-mark-attendance` — Marca o ponto de vários funcionários numa data (pula duplicados, acumula erros).
-- `list-attendance` — Lista marcações com nome do funcionário e resumo agregado por status.
+### `mark-attendance`
 
-| Campo | Detalhe |
+Registra a presença de um funcionário em uma data.
+
+| | |
 |---|---|
-| **Entradas** | mark: --employee-id, --date, --status (obrig.) + --shift, --check-in-time, --check-out-time, --working-hours, --late-entry(0/1), --early-exit(0/1), --source. bulk: --date, --entries (JSON [{employee_id,status}]) + --source. list: --employee-id, --from-date, --to-date, --status, --limit, --offset. |
-| **Saídas** | mark: attendance_id, employee_name, date, status, source. bulk: total, created, skipped_duplicates, errors[]. list: attendance[] + total_count, paginação e summary (contagens por status: present/absent/half_day/on_leave/work_from_home). |
-| **Regras de negócio** | status em VALID_ATTENDANCE_STATUSES; source em VALID_ATTENDANCE_SOURCES (default manual); late_entry/early_exit 0/1; data ISO e não futura (mark). Unicidade por employee_id+attendance_date: mark rejeita duplicado; bulk pula duplicado (skipped_duplicates) e valida cada entrada acumulando erros sem abortar. |
-| **Efeitos colaterais** | mark-attendance: INSERT em attendance + auditoria. bulk-mark-attendance: INSERT em attendance por entrada válida (sem auditoria por linha). list: nenhum (somente leitura). Sem GL/estoque. |
-| **Pré-condições** | Funcionário deve existir. Não pode haver marcação prévia para a mesma data (chave única employee_id+attendance_date). |
+| **Entradas** | --employee-id (obrigatório), --date (obrigatório), --status (obrigatório); opcionais: --shift, --check-in-time, --check-out-time, --working-hours, --late-entry (0/1, default 0), --early-exit (0/1, default 0), --source (manual\|biometric\|app, default manual). |
+| **Saídas** | attendance_id, employee_id, employee_name, date, status, source, message. |
+| **Regras** | Funcionário deve existir; data válida e não futura; valida status/source/late_entry/early_exit; impede duplicidade por (employee_id, attendance_date). |
+| **Efeitos colaterais** | INSERT em attendance; audit_log; commit. |
+| **Pré-condições** | Funcionário existente; sem registro de ponto prévio para a mesma data. |
+
+### `bulk-mark-attendance`
+
+Registra presença para vários funcionários numa data, pulando duplicados.
+
+| | |
+|---|---|
+| **Entradas** | --date (obrigatório), --entries (JSON array de {employee_id, status}, obrigatório); opcional: --source (default manual). |
+| **Saídas** | date, total, created, skipped_duplicates, errors (lista), message. |
+| **Regras** | Valida data e source; cada entry exige employee_id e status válido e funcionário existente (caso contrário adiciona à lista errors e continua); registros já existentes na data contam como skipped_duplicates; late_entry/early_exit fixos em 0. |
+| **Efeitos colaterais** | INSERT em attendance por entry válida e não duplicada; commit (sem audit_log). |
+| **Pré-condições** | Funcionários referenciados existentes (entradas inválidas são apenas reportadas). |
+
+### `list-attendance`
+
+Lista registros de ponto com filtros, paginação e resumo agregado.
+
+| | |
+|---|---|
+| **Entradas** | Opcionais: --employee-id, --from-date, --to-date, --status, --limit (default 20), --offset (default 0). |
+| **Saídas** | attendance (com employee_name/series), total_count, limit, offset, has_more, summary (contagens por status). |
+| **Regras** | Valida status contra enum quando informado; ordena por attendance_date desc e full_name; summary usa os mesmos filtros. |
+| **Efeitos colaterais** | nenhum (leitura). |
+| **Pré-condições** | Nenhuma. |
 
 ## Regularização
 
-**Objetivo.** Definir regras de regularização de atraso por empresa e aplicá-las às marcações de ponto com atraso, ajustando status ou gerando avisos.
+**Objetivo.** Regras de regularização de atrasos e sua aplicação em massa sobre registros de ponto.
 
-**Ações:**
-- `add-regularization-rule` — Cria regra com limite de minutos de atraso e ação (half_day/deduct_leave/warn).
-- `apply-attendance-regularization` — Aplica as regras às marcações com late_entry=1 num período.
+### `add-regularization-rule`
 
-| Campo | Detalhe |
+Adiciona uma regra de regularização de atraso para uma empresa.
+
+| | |
 |---|---|
-| **Entradas** | add-regularization-rule: --company-id, --late-threshold-minutes, --regularization-action (obrig.). apply-attendance-regularization: --company-id (obrig.) + --from-date, --to-date. |
-| **Saídas** | add: rule_id, company_id, late_threshold_minutes, action. apply: records_processed, records_updated, warnings[] (com employee_id, data, late_minutes) e warning_count. |
-| **Regras de negócio** | Ação em VALID_REGULARIZATION_ACTIONS (half_day, deduct_leave, warn); late_threshold_minutes inteiro > 0. apply: processa apenas attendance com late_entry=1 da empresa no período; calcula atraso a partir de check_in_time considerando início às 9h; ao atingir o threshold da primeira regra aplicável: 'half_day' altera status, 'warn'/'deduct_leave' apenas geram aviso (não alteram saldo de licença). |
-| **Efeitos colaterais** | add-regularization-rule: INSERT em attendance_regularization_rule + auditoria. apply-attendance-regularization: UPDATE em attendance (status='half_day') para registros com ação half_day; ações warn/deduct_leave NÃO alteram dados (somente avisos). Sem GL/estoque e sem auditoria por registro alterado. |
-| **Pré-condições** | Empresa deve existir. apply exige ao menos uma regra de regularização cadastrada para a empresa; depende de marcações de ponto com late_entry=1 e check_in_time preenchido. |
+| **Entradas** | --company-id (obrigatório), --late-threshold-minutes (obrigatório), --regularization-action (obrigatório: half_day\|deduct_leave\|warn). |
+| **Saídas** | rule_id, company_id, late_threshold_minutes, action, message. |
+| **Regras** | Company deve existir; late_threshold_minutes inteiro > 0; action restrita a VALID_REGULARIZATION_ACTIONS. |
+| **Efeitos colaterais** | INSERT em attendance_regularization_rule; audit_log; commit. |
+| **Pré-condições** | Company existente. |
+
+### `apply-attendance-regularization`
+
+Aplica as regras de regularização aos registros de ponto com atraso de uma empresa.
+
+| | |
+|---|---|
+| **Entradas** | --company-id (obrigatório); opcionais: --from-date, --to-date. |
+| **Saídas** | records_processed, records_updated, warnings (lista), warning_count. |
+| **Regras** | Erro se não houver regras para a company; processa attendance com late_entry=1; calcula minutos de atraso a partir de check_in_time (referência 9h); para a primeira regra cujo threshold é atingido aplica: half_day (atualiza status), warn ou deduct_leave (apenas registra warning). |
+| **Efeitos colaterais** | UPDATE attendance SET status='half_day' para registros que casam regra half_day; commit; warn/deduct_leave não escrevem (apenas reportam). |
+| **Pré-condições** | Pelo menos uma regra de regularização cadastrada para a company. |
 
 ## Feriados
 
-**Objetivo.** Cadastrar listas de feriados por empresa, com entradas filhas de datas, usadas no cálculo de dias úteis das solicitações de licença.
+**Objetivo.** Criação de listas de feriados e suas datas para cálculo de dias úteis.
 
-**Ações:**
-- `add-holiday-list` — Cria lista de feriados com período e entradas de datas filtradas ao intervalo.
+### `add-holiday-list`
 
-| Campo | Detalhe |
+Cria uma lista de feriados com datas-filho opcionais para uma empresa.
+
+| | |
 |---|---|
-| **Entradas** | --name, --company-id, --from-date, --to-date (obrig.) + --holidays (JSON [{date, description}]). |
-| **Saídas** | holiday_list_id, name, from_date, to_date, holiday_count (feriados efetivamente inseridos). |
-| **Regras de negócio** | Empresa deve existir; from <= to; holiday_list.name é UNIQUE. Cada feriado precisa de date válida e dentro do intervalo (datas inválidas ou fora do range são ignoradas silenciosamente). |
-| **Efeitos colaterais** | INSERT em holiday_list + INSERT em holiday para cada feriado válido + auditoria. Somente escrita nessas tabelas; sem GL/estoque. |
-| **Pré-condições** | Empresa deve existir. As listas/feriados são posteriormente consumidos no cálculo de licenças (lista do funcionário ou da empresa). |
+| **Entradas** | --name (obrigatório), --company-id (obrigatório), --from-date (obrigatório), --to-date (obrigatório); opcional: --holidays (JSON array de {date, description}). |
+| **Saídas** | holiday_list_id, name, from_date, to_date, holiday_count, message. |
+| **Regras** | Company deve existir; datas válidas e from<=to; holiday_list.name é UNIQUE; feriados com data inválida ou fora do intervalo são ignorados (não contam). |
+| **Efeitos colaterais** | INSERT em holiday_list e em holiday (um por feriado válido); audit_log; commit. |
+| **Pré-condições** | Company existente. |
 
 ## Reembolsos de Despesas
 
-**Objetivo.** Gerir o ciclo de reembolso de despesas de funcionários: rascunho com itens, submissão, aprovação com postagem contábil, rejeição, integração com pagamentos e consulta.
+**Objetivo.** Ciclo de vida das despesas de funcionários: rascunho, submissão, aprovação com lançamento contábil, rejeição, atualização de status e listagem.
 
-**Ações:**
-- `add-expense-claim` — Cria reembolso 'draft' com itens, calcula total e gera naming_series.
-- `submit-expense-claim` — Submete reembolso 'draft' para aprovação (status 'submitted').
-- `approve-expense-claim` — Aprova reembolso 'submitted' e gera lançamentos no GL (DR despesa / CR conta a pagar).
-- `reject-expense-claim` — Rejeita reembolso 'submitted'.
-- `update-expense-claim-status` — Atualiza status/payment_entry_id (uso cross-skill por payments, ex.: marcar 'paid').
-- `list-expense-claims` — Lista reembolsos com nome do funcionário e contagem de itens.
+### `add-expense-claim`
 
-| Campo | Detalhe |
+Cria uma despesa de funcionário em status 'draft' com itens.
+
+| | |
 |---|---|
-| **Entradas** | add: --employee-id, --expense-date, --company-id, --items (JSON [{expense_type,description,amount,account_id}]) (obrig.). submit/approve/reject: --expense-claim-id (approve também --approved-by; reject opcional --reason). update-status: --expense-claim-id, --status (+ --payment-entry-id). list: --employee-id, --status, --company-id, --from-date, --to-date, --limit, --offset. |
-| **Saídas** | add: expense_claim_id, naming_series, total_amount, item_count, status 'draft'. submit: status 'submitted'. approve: status 'approved', gl_entry_count, gl_entry_ids. reject: status 'rejected'. update-status: old_status/new_status. list: expense_claims (com item_count) + total_count e paginação. |
-| **Regras de negócio** | Ciclo: draft -> submitted -> approved \| rejected; pode ir a 'paid' via update-status. add: itens não vazios; expense_type em VALID_EXPENSE_TYPES; amount > 0; account_id (se informado) deve existir, não ser grupo e ser da empresa; total = soma dos itens. submit exige 'draft'; approve exige 'submitted' e aprovador válido (não pode aprovar o próprio); reject exige 'submitted'. update-status valida status em VALID_EXPENSE_STATUSES. |
-| **Efeitos colaterais** | add: INSERT em expense_claim + expense_claim_item + auditoria. submit/reject: UPDATE de status + auditoria. approve-expense-claim: postagem REAL no GL via insert_gl_entries (voucher_type='expense_claim') — DR conta de despesa de cada item, CR conta a pagar/passivo da empresa pelo total (party employee); UPDATE status='approved' + approval_date + auditoria; rollback se faltar conta a pagar/despesa ou ano fiscal. update-expense-claim-status: UPDATE status e payment_entry_id + auditoria (sem GL). list: somente leitura. Sem SLE de estoque. |
-| **Pré-condições** | Funcionário e empresa devem existir; contas dos itens (quando informadas) devem existir/não-grupo/mesma empresa. Para aprovar: empresa precisa de conta a pagar (default_payable_account_id ou conta payable/liability) e conta de despesa default, cost center não-grupo e ano fiscal aberto na data. |
+| **Entradas** | --employee-id (obrigatório), --expense-date (obrigatório), --company-id (obrigatório), --items (JSON array de {expense_type, description, amount, account_id}, obrigatório). |
+| **Saídas** | expense_claim_id, naming_series, employee_id, employee_name, expense_date, total_amount, item_count, status='draft', message. |
+| **Regras** | Valida employee, company e data; cada item exige expense_type válido e amount>0; account_id (se informado) deve existir, não ser grupo e pertencer à mesma company; total_amount = soma dos itens (arredondada); gera naming_series. |
+| **Efeitos colaterais** | INSERT em expense_claim (status draft) e em expense_claim_item (um por item); audit_log; commit. |
+| **Pré-condições** | Funcionário e company existentes; contas dos itens válidas se informadas. |
+
+### `submit-expense-claim`
+
+Submete uma despesa em rascunho para aprovação.
+
+| | |
+|---|---|
+| **Entradas** | --expense-claim-id (obrigatório). |
+| **Saídas** | expense_claim_id, naming_series, status='submitted', message. |
+| **Regras** | Despesa deve existir e estar 'draft'. |
+| **Efeitos colaterais** | UPDATE expense_claim (status='submitted'); audit_log; commit. |
+| **Pré-condições** | Despesa em 'draft'. |
+
+### `approve-expense-claim`
+
+Aprova uma despesa submetida e gera lançamentos contábeis (GL).
+
+| | |
+|---|---|
+| **Entradas** | --expense-claim-id (obrigatório), --approved-by (obrigatório). |
+| **Saídas** | expense_claim_id, naming_series, status='approved', approved_by, approver_name, total_amount, gl_entry_count, gl_entry_ids, message. |
+| **Regras** | Despesa deve existir e estar 'submitted'; approved_by funcionário válido e diferente do solicitante; exige itens; resolve conta a pagar (default_payable_account_id da company, ou conta payable, ou liability) e conta de despesa (account_id do item ou default_expense_account_id/conta expense); exige cost center e ano fiscal aberto; DR conta de despesa por item, CR conta a pagar pelo total (party employee); rollback+erro em qualquer falha de GL/contas. |
+| **Efeitos colaterais** | INSERT em gl_entry (via insert_gl_entries) — DR despesas / CR a pagar; UPDATE expense_claim (status='approved', approved_by, approval_date); audit_log; commit. |
+| **Pré-condições** | Despesa em 'submitted' com itens; contas a pagar/despesa, cost center e ano fiscal aberto disponíveis para a company. |
+
+### `reject-expense-claim`
+
+Rejeita uma despesa submetida.
+
+| | |
+|---|---|
+| **Entradas** | --expense-claim-id (obrigatório); opcional: --reason (default 'No reason provided'). |
+| **Saídas** | expense_claim_id, naming_series, status='rejected', employee_id, rejection_reason, message. |
+| **Regras** | Despesa deve existir e estar 'submitted'; não gera lançamento contábil. |
+| **Efeitos colaterais** | UPDATE expense_claim (status='rejected'); audit_log; commit. |
+| **Pré-condições** | Despesa em 'submitted'. |
+
+### `update-expense-claim-status`
+
+Atualiza o status (e vínculo de pagamento) de uma despesa; usado entre skills (ex.: pagamentos para marcar 'paid').
+
+| | |
+|---|---|
+| **Entradas** | --expense-claim-id (obrigatório), --status (obrigatório, deve ser VALID_EXPENSE_STATUSES); opcional: --payment-entry-id. |
+| **Saídas** | expense_claim_id, naming_series, old_status, new_status, payment_entry_id, message. |
+| **Regras** | Despesa deve existir; status validado contra enum; grava payment_entry_id se informado; não valida transição de estado específica. |
+| **Efeitos colaterais** | UPDATE expense_claim (status e opcionalmente payment_entry_id, via dynamic_update); audit_log; commit. |
+| **Pré-condições** | Despesa existente. |
+
+### `list-expense-claims`
+
+Lista despesas de funcionários com filtros, paginação e contagem de itens.
+
+| | |
+|---|---|
+| **Entradas** | Opcionais: --employee-id, --status, --company-id, --from-date, --to-date, --limit (default 20), --offset (default 0). |
+| **Saídas** | expense_claims (com employee_name/series e item_count via subquery), total_count, limit, offset, has_more. |
+| **Regras** | Valida status contra enum quando informado; usa SQL bruto com subquery correlacionada para item_count; ordena por created_at desc. |
+| **Efeitos colaterais** | nenhum (leitura). |
+| **Pré-condições** | Nenhuma. |
 
 ## Turnos
 
-**Objetivo.** Definir tipos de turno por empresa e atribuí-los a funcionários por período.
+**Objetivo.** Definição de tipos de turno e atribuição/listagem de turnos por funcionário.
 
-**Ações:**
-- `add-shift-type` — Cria tipo de turno com horários de início/fim e status.
-- `list-shift-types` — Lista tipos de turno por empresa/status.
-- `update-shift-type` — Atualiza nome/horários/status de um tipo de turno.
-- `assign-shift` — Atribui um tipo de turno a um funcionário num intervalo de datas.
-- `list-shift-assignments` — Lista atribuições com nome do turno e do funcionário.
+### `add-shift-type`
 
-| Campo | Detalhe |
+Cria um tipo de turno com horários de início e fim.
+
+| | |
 |---|---|
-| **Entradas** | add-shift-type: --name, --start-time, --end-time, --company-id (obrig.) + --status. update-shift-type: --shift-type-id + campos opcionais. assign-shift: --employee-id, --shift-type-id, --start-date (obrig.) + --end-date, --status. list-shift-types: --company-id, --status, --limit, --offset. list-shift-assignments: --employee-id, --shift-type-id, --status, --company-id, --limit, --offset. |
-| **Saídas** | add-shift-type: shift_type_id, name, horários, shift_status. update: registro atualizado (status renomeado para shift_status). assign-shift: shift_assignment_id, datas, assignment_status. list-*: listas + count. |
-| **Regras de negócio** | Horários em HH:MM ou HH:MM:SS (regex); status em (active, inactive); shift_type.name é único (validado na criação e atualização). assign-shift: funcionário e tipo de turno devem existir; datas em YYYY-MM-DD; end_date não anterior a start_date. update exige ao menos um campo. |
-| **Efeitos colaterais** | add-shift-type: INSERT em shift_type (sem auditoria). update-shift-type: UPDATE em shift_type (sem auditoria). assign-shift: INSERT em shift_assignment (sem auditoria). list-*: somente leitura. Sem GL/estoque. |
-| **Pré-condições** | Empresa deve existir (tipo de turno). Funcionário e tipo de turno devem existir para atribuição. |
+| **Entradas** | --name (obrigatório), --start-time (obrigatório), --end-time (obrigatório), --company-id (obrigatório); opcional: --status (default 'active'). |
+| **Saídas** | shift_type_id, name, start_time, end_time, company_id, shift_status. |
+| **Regras** | status restrito a active/inactive; start/end-time no formato HH:MM ou HH:MM:SS; company deve existir; shift_type.name único. |
+| **Efeitos colaterais** | INSERT em shift_type; commit (sem audit_log). |
+| **Pré-condições** | Company existente; nome de turno não usado. |
+
+### `list-shift-types`
+
+Lista tipos de turno com filtros opcionais.
+
+| | |
+|---|---|
+| **Entradas** | Opcionais: --company-id, --status, --limit (default 20), --offset (default 0). |
+| **Saídas** | shift_types (linhas completas), count. |
+| **Regras** | Ordena por name; status comparado em minúsculas. |
+| **Efeitos colaterais** | nenhum (leitura). |
+| **Pré-condições** | Nenhuma. |
+
+### `update-shift-type`
+
+Atualiza campos de um tipo de turno existente.
+
+| | |
+|---|---|
+| **Entradas** | --shift-type-id (obrigatório); opcionais: --name, --start-time, --end-time, --status. |
+| **Saídas** | linha do shift_type atualizado (com status renomeado para shift_status). |
+| **Regras** | Turno deve existir; novo name deve ser único; start/end-time validados (HH:MM[:SS]); status restrito a active/inactive; erro se nenhum campo informado. |
+| **Efeitos colaterais** | UPDATE shift_type (SQL bruto, inclui updated_at); commit (sem audit_log). |
+| **Pré-condições** | Tipo de turno existente. |
+
+### `assign-shift`
+
+Atribui um tipo de turno a um funcionário num período.
+
+| | |
+|---|---|
+| **Entradas** | --employee-id (obrigatório), --shift-type-id (obrigatório), --start-date (obrigatório); opcionais: --end-date, --status (default 'active'). |
+| **Saídas** | shift_assignment_id, employee_id, shift_type_id, start_date, end_date, assignment_status. |
+| **Regras** | status restrito a active/inactive; funcionário e tipo de turno devem existir; datas no formato YYYY-MM-DD; end_date não pode ser anterior a start_date. |
+| **Efeitos colaterais** | INSERT em shift_assignment; commit (sem audit_log). |
+| **Pré-condições** | Funcionário e tipo de turno existentes. |
+
+### `list-shift-assignments`
+
+Lista atribuições de turno com filtros opcionais.
+
+| | |
+|---|---|
+| **Entradas** | Opcionais: --employee-id, --shift-type-id, --status, --company-id, --limit (default 20), --offset (default 0). |
+| **Saídas** | shift_assignments (com shift_name e employee_name), count. |
+| **Regras** | JOIN com shift_type e employee; --company-id filtra pela company do funcionário; ordena por start_date desc. |
+| **Efeitos colaterais** | nenhum (leitura). |
+| **Pré-condições** | Nenhuma. |
 
 ## Documentos
 
-**Objetivo.** Gerir documentos de funcionários (passaporte, visto, I9, W4, contrato etc.), consultá-los e monitorar vencimentos.
+**Objetivo.** Cadastro, consulta e monitoramento de vencimento de documentos dos funcionários.
 
-**Ações:**
-- `add-employee-document` — Adiciona documento ao funcionário com tipo, nome, validade e status 'active'.
-- `list-employee-documents` — Lista documentos de um funcionário com filtros por tipo/status.
-- `get-employee-document` — Retorna um documento específico por id.
-- `check-expiring-documents` — Lista documentos ativos a vencer em N dias, com dias restantes e flag de vencido.
+### `add-employee-document`
 
-| Campo | Detalhe |
+Adiciona um documento ao funcionário com status inicial 'active'.
+
+| | |
 |---|---|
-| **Entradas** | add: --employee-id, --document-type, --document-name (obrig.) + --expiry-date, --notes. list: --employee-id (obrig.) + --document-type, --status. get: --document-id (obrig.). check-expiring: --company-id, --days (default 30). |
-| **Saídas** | add: employee_document_id, employee_name, document_type, expiry_date. list/get: documento(s) (campos completos). check-expiring: expiring_documents (com days_until_expiry e is_expired), count, days_window. |
-| **Regras de negócio** | document_type em VALID_DOCUMENT_TYPES; status em VALID_DOCUMENT_STATUSES (default 'active'); expiry_date ISO YYYY-MM-DD quando informado. check-expiring considera apenas documentos 'active' com expiry_date <= hoje+N dias. |
-| **Efeitos colaterais** | add-employee-document: INSERT em employee_document + auditoria. list/get/check-expiring: nenhum (somente leitura). Sem GL/estoque. |
-| **Pré-condições** | Funcionário deve existir (add e list). Sem outras dependências contábeis. |
+| **Entradas** | --employee-id (obrigatório), --document-type (obrigatório, VALID_DOCUMENT_TYPES), --document-name (obrigatório); opcionais: --expiry-date, --notes. |
+| **Saídas** | employee_document_id, employee_id, employee_name, document_type, document_name, expiry_date, message. |
+| **Regras** | Funcionário deve existir; document_type validado contra lista (passport/visa/drivers_license/i9/w4/offer_letter/contract/certificate/other); expiry_date validada (YYYY-MM-DD) se informada; status fixo 'active'. |
+| **Efeitos colaterais** | INSERT em employee_document; audit_log; commit. |
+| **Pré-condições** | Funcionário existente. |
+
+### `list-employee-documents`
+
+Lista os documentos de um funcionário.
+
+| | |
+|---|---|
+| **Entradas** | --employee-id (obrigatório); opcionais: --document-type, --status. |
+| **Saídas** | documents (linhas completas), count. |
+| **Regras** | Filtra por document_type/status (minúsculas) quando informados; ordena por created_at. |
+| **Efeitos colaterais** | nenhum (leitura). |
+| **Pré-condições** | Nenhuma (não revalida existência do funcionário). |
+
+### `get-employee-document`
+
+Retorna um documento específico de funcionário.
+
+| | |
+|---|---|
+| **Entradas** | --document-id (obrigatório). |
+| **Saídas** | linha completa do employee_document. |
+| **Regras** | Erro se o documento não existir. |
+| **Efeitos colaterais** | nenhum (leitura). |
+| **Pré-condições** | Documento existente. |
+
+### `check-expiring-documents`
+
+Lista documentos ativos que vencem dentro de N dias.
+
+| | |
+|---|---|
+| **Entradas** | Opcionais: --company-id, --days (default 30). |
+| **Saídas** | expiring_documents (com employee_name, company_id, days_until_expiry, is_expired), count, days_window. |
+| **Regras** | Considera apenas documentos com expiry_date não nula, status 'active' e expiry_date <= hoje+days; filtra por company quando informado; calcula days_until_expiry e is_expired (expiry < hoje); ordena por expiry_date. |
+| **Efeitos colaterais** | nenhum (leitura). |
+| **Pré-condições** | Nenhuma. |
 
 ## Eventos de Carreira
 
-**Objetivo.** Registrar eventos do ciclo de vida do funcionário (contratação, promoção, transferência, desligamento etc.), atualizando o cadastro em eventos de saída.
+**Objetivo.** Registro de eventos do ciclo de vida do funcionário, com efeito de desligamento.
 
-**Ações:**
-- `record-lifecycle-event` — Registra evento de ciclo de vida; em separation/resignation/retirement marca o funcionário como 'left' e define date_of_exit.
+### `record-lifecycle-event`
 
-| Campo | Detalhe |
+Registra um evento de ciclo de vida do funcionário (contratação, promoção, desligamento, etc.).
+
+| | |
 |---|---|
-| **Entradas** | --employee-id, --event-type, --event-date (obrig.) + --details, --old-values, --new-values (JSON). |
-| **Saídas** | event_id, employee_name, event_type, event_date; em eventos de saída inclui employee_status_updated=true, new_employee_status='left' e date_of_exit. |
-| **Regras de negócio** | event_type em VALID_LIFECYCLE_EVENTS (hiring, confirmation, promotion, transfer, separation, resignation, retirement); event_date ISO. Para separation/resignation/retirement: além de registrar o evento, atualiza employee.status='left' e date_of_exit = event_date. Obs.: 'hiring' também é gerado automaticamente ao criar funcionário em add-employee. |
-| **Efeitos colaterais** | INSERT em employee_lifecycle_event + auditoria; em eventos de saída, UPDATE em employee (status='left', date_of_exit). Sem GL/estoque. |
-| **Pré-condições** | Funcionário deve existir. Sem dependências contábeis. |
+| **Entradas** | --employee-id (obrigatório), --event-type (obrigatório, VALID_LIFECYCLE_EVENTS), --event-date (obrigatório); opcionais: --details (JSON), --old-values (JSON), --new-values (JSON). |
+| **Saídas** | event_id, employee_id, employee_name, event_type, event_date, message; (employee_status_updated, new_employee_status='left', date_of_exit se desligamento). |
+| **Regras** | Funcionário deve existir; event_type validado (hiring/confirmation/promotion/transfer/separation/resignation/retirement); data válida; para separation/resignation/retirement atualiza employee para status 'left' e define date_of_exit. |
+| **Efeitos colaterais** | INSERT em employee_lifecycle_event; UPDATE employee (status='left' + date_of_exit) em eventos de desligamento; audit_log; commit. |
+| **Pré-condições** | Funcionário existente. |
 
 ## Status
 
-**Objetivo.** Fornecer um painel-resumo do módulo de RH com contagens e indicadores agregados, opcionalmente por empresa.
+**Objetivo.** Resumo geral do módulo de RH com contagens e indicadores agregados.
 
-**Ações:**
-- `status` — Resumo: funcionários por status, departamentos, licenças e ponto do período corrente, reembolsos por status e eventos recentes.
+### `status`
 
-| Campo | Detalhe |
+Retorna um resumo do módulo de RH (funcionários, departamentos, férias, ponto, despesas e eventos recentes).
+
+| | |
 |---|---|
-| **Entradas** | --company-id (opcional, filtra todos os agregados por empresa). |
-| **Saídas** | total_employees, employees_by_status, total_departments, leave_summary (ano fiscal corrente), attendance_summary_current_month, expense_claims_by_status, recent_lifecycle_events (últimos 10) e fiscal_year. |
-| **Regras de negócio** | Agrega contagens por status/categoria sobre employee, department, leave_application, attendance e expense_claim; licenças e ponto usam o ano fiscal aberto corrente e o mês corrente, respectivamente; quando --company-id é informado, todos os recortes são filtrados pela empresa. |
-| **Efeitos colaterais** | Nenhum (somente leitura). |
-| **Pré-condições** | Tabela 'company' presente (dependência do módulo). Indicadores de licença dependem de existir ano fiscal aberto para a data corrente. |
+| **Entradas** | Opcional: --company-id (filtra por empresa). |
+| **Saídas** | total_employees, employees_by_status, total_departments, leave_summary, attendance_summary_current_month, expense_claims_by_status, recent_lifecycle_events (últimos 10), fiscal_year. |
+| **Regras** | Contagens por status só incluídas quando > 0; leave_summary baseado no ano fiscal corrente; resumo de ponto do mês corrente; tudo filtrável por company. |
+| **Efeitos colaterais** | nenhum (leitura). |
+| **Pré-condições** | Nenhuma. |
 

@@ -1,161 +1,252 @@
-# Lançamentos Contábeis — `erpclaw-journals`
+# Lançamentos — `erpclaw-journals`
 
-> Specs funcionais (enxutas) por funcionalidade. Geradas do código: `scripts/erpclaw-journals/db_query.py`. 10 funcionalidades · 17 ações.
+> Spec funcional por ação. Gerada de `scripts/erpclaw-journals/db_query.py`. 11 funcionalidades · 17 ações.
 
 ## Criação/edição
 
-**Objetivo.** Criar e editar lançamentos contábeis manuais em rascunho, com linhas de débito/crédito balanceadas, antes de sua submissão ao razão (GL).
+**Objetivo.** Criar e alterar lançamentos contábeis em rascunho, validando partidas balanceadas e contas existentes.
 
-**Ações:**
-- `add-journal-entry` — Cria um novo lançamento contábil em status 'draft' com suas linhas.
-- `update-journal-entry` — Atualiza data, tipo, observação e/ou substitui as linhas de um lançamento ainda em rascunho.
+### `add-journal-entry`
 
-| Campo | Detalhe |
+Cria um novo lançamento contábil (journal entry) em rascunho com suas linhas.
+
+| | |
 |---|---|
-| **Entradas** | add: --company-id, --posting-date, --entry-type (default 'journal'), --lines (JSON array com account_id, debit, credit, party_type/party_id, cost_center_id, project_id, remark), --remark, --cwip-asset-id (opcional). update: --journal-entry-id e os campos a alterar (--posting-date, --entry-type, --remark, --lines). |
-| **Saídas** | add: status 'created', journal_entry_id e naming_series. update: status 'updated', journal_entry_id e lista de updated_fields alterados. |
-| **Regras de negócio** | Mínimo de 2 linhas; cada linha exige account_id e exatamente um lado (débito OU crédito) > 0, ambos >= 0; total de débitos deve igualar total de créditos (round_currency). entry-type deve estar em VALID_ENTRY_TYPES (journal, opening, closing, depreciation, write_off, exchange_rate_revaluation, inter_company, credit_note, debit_note). update só é permitido enquanto status='draft' (caso contrário erro pedindo cancelar antes); ao trocar linhas, recalcula total_debit/total_credit. Se --cwip-asset-id for informado, valida que o ativo está 'under_construction'. |
-| **Efeitos colaterais** | Persiste em journal_entry (status 'draft') e journal_entry_line; update pode apagar e reinserir todas as linhas. Registra auditoria (add-journal-entry/update-journal-entry). NÃO posta no GL nesta etapa (somente rascunho). |
-| **Pré-condições** | Empresa (company) deve existir; todas as contas (account) das linhas devem existir. Tabelas obrigatórias: company e account. Para CWIP, ativo em construção pré-existente. |
+| **Entradas** | --company-id (obrigatório); --posting-date (obrigatório); --lines JSON array (obrigatório); --entry-type (default 'journal'); --remark (opcional); --cwip-asset-id (opcional, hook CWIP). |
+| **Saídas** | status='created', journal_entry_id, naming_series. |
+| **Regras** | entry_type deve estar em VALID_ENTRY_TYPES; lines validadas por _validate_lines (>=2 linhas, debit/credit >=0, não ambos >0, ao menos um >0, total débito==crédito após round_currency); cada account_id deve existir; se --cwip-asset-id, o ativo deve estar 'under_construction' (validado no add, accumulation só no submit). Status inicial 'draft'. |
+| **Efeitos colaterais** | INSERT em journal_entry (status='draft') e journal_entry_line; grava audit_log via audit(); commit. Sem postagem em gl_entry. |
+| **Pré-condições** | Empresa (company) existente; contas (account) das linhas existentes; se CWIP, asset under_construction. |
+
+### `update-journal-entry`
+
+Atualiza um lançamento em rascunho (data, tipo, remark e/ou substitui linhas).
+
+| | |
+|---|---|
+| **Entradas** | --journal-entry-id (obrigatório); opcionais --posting-date, --entry-type, --remark, --lines (substitui todas as linhas). |
+| **Saídas** | status='updated', journal_entry_id, updated_fields (lista de campos alterados). |
+| **Regras** | JE deve existir e status=='draft' (senão erro com sugestão de cancelar). entry_type novo validado contra VALID_ENTRY_TYPES; se --lines, revalida por _validate_lines e existência das contas; erro 'No fields to update' se nada informado. |
+| **Efeitos colaterais** | UPDATE em journal_entry (campos + total_debit/total_credit e updated_at); se linhas: DELETE+INSERT em journal_entry_line; grava audit_log; commit. Sem gl_entry. |
+| **Pré-condições** | JE existente em status 'draft'; contas das novas linhas existentes. |
 
 ## Consulta/listagem
 
-**Objetivo.** Recuperar um lançamento individual com suas linhas ou listar/filtrar lançamentos de uma empresa com paginação.
+**Objetivo.** Recuperar um lançamento individual ou listar lançamentos com filtros e paginação (somente leitura).
 
-**Ações:**
-- `get-journal-entry` — Retorna um lançamento e todas as suas linhas (com nome da conta).
-- `list-journal-entries` — Lista lançamentos de uma empresa com filtros e paginação.
+### `get-journal-entry`
 
-| Campo | Detalhe |
+Retorna um lançamento contábil com todas as suas linhas.
+
+| | |
 |---|---|
-| **Entradas** | get: --journal-entry-id. list: --company-id ou --company (nome); filtros opcionais --status, --entry-type, --from-date, --to-date, --account-id; paginação --limit (default 20) e --offset (default 0). |
-| **Saídas** | get: cabeçalho (id, naming_series, posting_date, entry_type, status, total_debit, total_credit, remark, amended_from, company_id) e array de lines. list: entries[], total_count, limit, offset e has_more. |
-| **Regras de negócio** | get falha se o lançamento não existir. list resolve a empresa por id ou nome (resolve_company_id) e sempre filtra por company_id; --account-id filtra via subconsulta nas linhas; ordena por posting_date desc e created_at desc. |
-| **Efeitos colaterais** | Nenhum (somente leitura). |
-| **Pré-condições** | Empresa existente (para list); lançamento existente (para get). Tabelas company e account presentes. |
+| **Entradas** | --journal-entry-id (obrigatório). |
+| **Saídas** | id, naming_series, posting_date, entry_type, status, total_debit, total_credit, remark, amended_from, company_id, lines[] (id, account_id, account_name, debit, credit, party_type, party_id, cost_center_id, project_id, remark). |
+| **Regras** | JE deve existir (senão erro 'not found'). Linhas ordenadas por line_order com join em account para nome. |
+| **Efeitos colaterais** | nenhum (leitura). |
+| **Pré-condições** | JE existente. |
+
+### `list-journal-entries`
+
+Lista lançamentos de uma empresa com filtros e paginação.
+
+| | |
+|---|---|
+| **Entradas** | company resolvido por --company-id ou --company (obrigatório resolver um); opcionais --status, --entry-type, --from-date, --to-date, --account-id; --limit (default 20), --offset (default 0). |
+| **Saídas** | entries[] (id, naming_series, posting_date, entry_type, status, total_debit, total_credit, remark), total_count, limit, offset, has_more. |
+| **Regras** | Filtro obrigatório por company_id (resolve_company_id); --account-id filtra via subquery em journal_entry_line; ordenação por posting_date desc, created_at desc. |
+| **Efeitos colaterais** | nenhum (leitura). |
+| **Pré-condições** | Empresa identificável por id ou nome. |
 
 ## Ciclo de vida
 
-**Objetivo.** Conduzir o lançamento pelo fluxo rascunho -> submetido -> cancelado, efetivando ou revertendo as postagens no razão (GL).
+**Objetivo.** Transicionar o lançamento entre rascunho, submetido e cancelado, postando ou revertendo entradas no razão (gl_entry).
 
-**Ações:**
-- `submit-journal-entry` — Submete um rascunho: revalida, posta as entradas no GL e muda status para 'submitted'.
-- `cancel-journal-entry` — Cancela um submetido: reverte as entradas do GL e muda status para 'cancelled'.
+### `submit-journal-entry`
 
-| Campo | Detalhe |
+Submete um rascunho: revalida, posta entradas balanceadas no razão e muda status para 'submitted'.
+
+| | |
 |---|---|
-| **Entradas** | Ambas: --journal-entry-id. |
-| **Saídas** | submit: status 'submitted', journal_entry_id, gl_entries_created (e, se CWIP, cwip_asset_id/cwip_accumulation_id). cancel: status 'cancelled', journal_entry_id, reversed=true. |
-| **Regras de negócio** | submit exige status='draft'; revalida balanceamento das linhas e chama validate_gl_entries (que rejeita conta congelada, ano fiscal fechado e período congelado). cancel exige status='submitted'. Lançamentos 'opening' são tratados como is_opening na validação/postagem GL. |
-| **Efeitos colaterais** | submit: INSERE linhas em gl_entry (voucher_type='journal_entry'), atualiza status para 'submitted'; se CWIP, grava acumulação contra a perna de débito CWIP e ajusta valor do ativo. cancel: insere entradas de reversão em gl_entry e, se CWIP, desfaz a acumulação e o valor contábil do ativo; muda status para 'cancelled'. Ambos registram auditoria. Não há SLE de estoque nem payment_ledger_entry. |
-| **Pré-condições** | Lançamento existente no status correto; contas não congeladas; ano fiscal aberto e período não congelado para a data de postagem; tabela fiscal_year disponível para a validação de GL. |
+| **Entradas** | --journal-entry-id (obrigatório). |
+| **Saídas** | status='submitted', journal_entry_id, gl_entries_created; se CWIP: cwip_asset_id, cwip_accumulation_id. |
+| **Regras** | JE deve existir e status=='draft'. Revalida linhas; chama validate_gl_entries (is_opening se entry_type=='opening') e insert_gl_entries (allow_cwip se cwip_asset_id). Erros de GL/CWIP abortam (err). Para CWIP: exatamente uma conta capital_work_in_progress debitada, senão erro. |
+| **Efeitos colaterais** | INSERT em gl_entry (via insert_gl_entries); se CWIP, registra accumulation (record_cwip_accumulation); UPDATE journal_entry.status='submitted'; grava audit_log; commit (transação única). |
+| **Pré-condições** | JE existente em 'draft'; contas/cost centers válidos para postagem; se CWIP, asset under_construction e leg de CWIP presente. |
+
+### `cancel-journal-entry`
+
+Cancela um lançamento submetido, revertendo suas entradas no razão e marcando status 'cancelled'.
+
+| | |
+|---|---|
+| **Entradas** | --journal-entry-id (obrigatório). |
+| **Saídas** | status='cancelled', journal_entry_id, reversed=true. |
+| **Regras** | JE deve existir e status=='submitted'. Reverte via reverse_gl_entries; se cwip_asset_id, desfaz accumulations (reverse_cwip_accumulations). Falha de reversão aborta. |
+| **Efeitos colaterais** | INSERT de entradas reversas em gl_entry (reverse_gl_entries); se CWIP, desfaz cwip accumulation/carrying value; UPDATE journal_entry.status='cancelled'; grava audit_log; commit. |
+| **Pré-condições** | JE existente em status 'submitted' com gl_entries postadas. |
 
 ## Retificação
 
-**Objetivo.** Corrigir um lançamento já submetido criando uma versão emendada vinculada, sem editar o documento original.
+**Objetivo.** Corrigir um lançamento submetido cancelando o original e gerando um novo rascunho vinculado.
 
-**Ações:**
-- `amend-journal-entry` — Cancela (reverte GL) o lançamento submetido e cria um novo rascunho ligado via amended_from.
+### `amend-journal-entry`
 
-| Campo | Detalhe |
+Retifica um lançamento submetido: cancela o original e cria um novo rascunho ligado (amended_from).
+
+| | |
 |---|---|
-| **Entradas** | --journal-entry-id; opcionalmente --lines (novas linhas; senão copia as do original), --posting-date (senão herda) e --remark. |
-| **Saídas** | status 'created', original_id, new_journal_entry_id e new_naming_series. |
-| **Regras de negócio** | Exige status='submitted'. Reverte o GL do original e marca o original como 'amended'. As novas linhas são validadas pelas mesmas regras de balanceamento; o novo lançamento nasce em 'draft' (precisa ser submetido depois) e referencia o original em amended_from. Herda entry_type e company do original. |
-| **Efeitos colaterais** | Insere entradas de reversão no gl_entry do original; muda status do original para 'amended'; cria novo registro em journal_entry (draft) e suas journal_entry_line. Registra auditoria (amend-journal-entry). O novo lançamento ainda NÃO posta no GL (somente ao ser submetido). |
-| **Pré-condições** | Lançamento existente e submetido; ano fiscal/período aberto para reverter na data de postagem do original. |
+| **Entradas** | --journal-entry-id (obrigatório); opcionais --lines (novas linhas; se ausente copia as originais), --posting-date (default data do original), --remark (default remark do original). |
+| **Saídas** | status='created', original_id, new_journal_entry_id, new_naming_series. |
+| **Regras** | JE deve existir e status=='submitted'. Reverte GL do original e marca-o status='amended'; valida as linhas do novo JE por _validate_lines. Novo JE herda entry_type e company do original, status 'draft', amended_from=original. |
+| **Efeitos colaterais** | reverse_gl_entries (entradas reversas em gl_entry); UPDATE original.status='amended'; INSERT novo journal_entry (draft, amended_from) + journal_entry_line; grava audit_log; commit. |
+| **Pré-condições** | JE existente em status 'submitted'. |
 
 ## Exclusão/duplicação
 
-**Objetivo.** Excluir definitivamente rascunhos ou duplicar um lançamento existente como novo rascunho reaproveitando suas linhas.
+**Objetivo.** Excluir rascunhos definitivamente ou duplicar um lançamento existente como novo rascunho.
 
-**Ações:**
-- `delete-journal-entry` — Exclui fisicamente um lançamento em rascunho (linhas e cabeçalho).
-- `duplicate-journal-entry` — Cria um novo rascunho copiando todas as linhas de um lançamento existente.
+### `delete-journal-entry`
 
-| Campo | Detalhe |
+Exclui definitivamente um lançamento em rascunho (cabeçalho e linhas).
+
+| | |
 |---|---|
-| **Entradas** | delete: --journal-entry-id. duplicate: --journal-entry-id e --posting-date opcional (senão usa data atual UTC). |
-| **Saídas** | delete: status 'deleted', deleted=true. duplicate: status 'created', new_journal_entry_id e naming_series. |
-| **Regras de negócio** | delete só permite status='draft' (sugere cancelar antes se submetido). duplicate copia linhas (conta, débito, crédito, party, centro de custo, projeto, observação), revalida o balanceamento e cria sempre em 'draft' com novo naming_series; herda entry_type, remark e company do original. |
-| **Efeitos colaterais** | delete: APAGA fisicamente journal_entry e journal_entry_line do lançamento; registra auditoria com o naming_series antigo. duplicate: insere novo journal_entry (draft) e linhas; registra auditoria. Nenhum afeta o GL. |
-| **Pré-condições** | Lançamento existente; para delete, deve estar em rascunho; contas das linhas devem existir. |
+| **Entradas** | --journal-entry-id (obrigatório). |
+| **Saídas** | status='deleted', deleted=true. |
+| **Regras** | JE deve existir e status=='draft' (senão erro com sugestão de cancelar). Apaga linhas antes do cabeçalho (FK). |
+| **Efeitos colaterais** | DELETE em journal_entry_line e journal_entry; grava audit_log (old_values naming_series); commit. |
+| **Pré-condições** | JE existente em status 'draft'. |
+
+### `duplicate-journal-entry`
+
+Duplica um lançamento (qualquer status) como um novo rascunho, copiando todas as linhas.
+
+| | |
+|---|---|
+| **Entradas** | --journal-entry-id (obrigatório); --posting-date (opcional, default data atual UTC). |
+| **Saídas** | status='created', new_journal_entry_id, naming_series. |
+| **Regras** | JE de origem deve existir; copia account_id/debit/credit/party/cost_center/project/remark das linhas e revalida por _validate_lines. Novo JE herda entry_type e company, status 'draft', remark do original. |
+| **Efeitos colaterais** | INSERT novo journal_entry (draft) + journal_entry_line; grava audit_log; commit. Sem gl_entry. |
+| **Pré-condições** | JE de origem existente. |
 
 ## Intercompany
 
-**Objetivo.** Registrar uma transação entre duas empresas criando um par de lançamentos espelhados (recebível na origem, pagável no destino).
+**Objetivo.** Gerar lançamentos pareados entre duas empresas com contas intercompany de receber/pagar.
 
-**Ações:**
-- `create-intercompany-je` — Cria lançamentos pareados entre empresa origem e destino, com contas intercompany e referência cruzada.
+### `create-intercompany-je`
 
-| Campo | Detalhe |
+Cria dois lançamentos pareados entre empresa origem e destino (DR Intercompany Receivable/CR Revenue e DR Expense/CR Intercompany Payable).
+
+| | |
 |---|---|
-| **Entradas** | --source-company-id, --target-company-id, --amount, --posting-date e --description opcional. |
-| **Saídas** | source_je_id/source_naming, target_je_id/target_naming, amount e description. |
-| **Regras de negócio** | Origem e destino devem ser diferentes; amount > 0; ambas as empresas devem existir e ter a MESMA moeda padrão (multimoeda não suportado na v2). Origem: DR Intercompany Receivable / CR conta de receita; Destino: DR conta de despesa (ou CMV) / CR Intercompany Payable. Cria automaticamente as contas 'Intercompany Receivable' (asset/receivable) e 'Intercompany Payable' (liability/payable) se não existirem; usa o primeiro centro de custo não-grupo de cada empresa para as linhas de P&L. entry_type fixo 'inter_company'. |
-| **Efeitos colaterais** | Insere DOIS journal_entry (ambos em 'draft', tipo inter_company) e suas linhas; pode CRIAR contas intercompany (account); grava referência cruzada no campo remark de cada lado. Registra auditoria. NÃO posta no GL (ambos nascem em rascunho, exigindo submit individual). |
-| **Pré-condições** | Duas empresas distintas existentes com mesma moeda; origem com conta de receita (não-grupo) e destino com conta de despesa/CMV (não-grupo). |
+| **Entradas** | --source-company-id (obrigatório); --target-company-id (obrigatório); --amount (obrigatório, >0); --posting-date (obrigatório); --description (opcional, default 'Intercompany transaction'). |
+| **Saídas** | source_je_id, source_naming, target_je_id, target_naming, amount, description. |
+| **Regras** | Origem != destino; amount>0; ambas empresas existem e mesma default_currency (senão erro v2). Cria/reaproveita contas Intercompany Receivable (asset) e Payable (liability); exige conta revenue na origem e expense/cogs no destino; usa cost center não-grupo se houver. Ambos JEs entry_type='inter_company', status 'draft', com cross-reference no remark. |
+| **Efeitos colaterais** | Pode INSERT em account (contas intercompany ausentes); INSERT 2x journal_entry (draft) e respectivas journal_entry_line; UPDATE remark com referência cruzada; grava audit_log; commit. Sem gl_entry (ficam em rascunho). |
+| **Pré-condições** | Duas empresas distintas, existentes, mesma moeda; origem com conta de receita e destino com conta de despesa/CMV não-grupo. |
 
 ## Modelos recorrentes
 
-**Objetivo.** Definir e manter modelos de lançamento que se repetem em uma periodicidade, servindo de base para geração automática.
+**Objetivo.** Criar e alterar modelos de lançamentos recorrentes que servem de base para geração automática.
 
-**Ações:**
-- `add-recurring-template` — Cria um modelo recorrente ativo com frequência, datas, linhas e flag de auto-submit.
-- `update-recurring-template` — Altera campos de um modelo (nome, frequência, datas, tipo, linhas, auto-submit, status active/paused).
-- `delete-recurring-template` — Exclui fisicamente um modelo recorrente.
+### `add-recurring-template`
 
-| Campo | Detalhe |
+Cria um modelo de lançamento recorrente com frequência, vigência e linhas.
+
+| | |
 |---|---|
-| **Entradas** | add: --company-id, --template-name, --frequency (default monthly), --start-date, --end-date opcional, --entry-type, --lines (JSON), --auto-submit, --remark. update: --template-id + campos a alterar (inclui --template-status active\|paused). delete: --template-id. |
-| **Saídas** | add: status 'created', template_id, naming_series e next_run_date (= start_date). update: status 'updated', template_id e updated_fields. delete: status 'deleted', deleted=true. |
-| **Regras de negócio** | frequency deve estar em (daily, weekly, monthly, quarterly, annual); entry_type em VALID_ENTRY_TYPES; linhas validadas pelo mesmo balanceamento de débito/crédito. next_run_date inicia em start_date. update bloqueia modelos 'completed' e só aceita status 'active' ou 'paused'. Apesar do docstring mencionar soft delete, delete remove o registro fisicamente. |
-| **Efeitos colaterais** | Persiste/atualiza/remove recurring_journal_template (linhas guardadas como JSON). Registra auditoria. Nenhum efeito direto no GL ou em journal_entry (apenas o modelo). |
-| **Pré-condições** | Empresa existente (add); contas das linhas existentes; modelo existente e não 'completed' (update); modelo existente (delete). |
+| **Entradas** | --company-id (obrigatório); --template-name (obrigatório); --start-date (obrigatório); --lines JSON (obrigatório); --frequency (default 'monthly'); --entry-type (default 'journal'); --end-date (opcional); --auto-submit (flag, default off); --remark (opcional). |
+| **Saídas** | status='created', template_id, naming_series, next_run_date (=start_date). |
+| **Regras** | frequency em VALID_FREQUENCIES; entry_type em VALID_ENTRY_TYPES; lines validadas por _validate_lines e contas existentes; status inicial 'active', next_run_date=start_date, lines armazenadas como JSON. |
+| **Efeitos colaterais** | INSERT em recurring_journal_template (status='active'); grava audit_log; commit. Não gera journal_entry nem gl_entry. |
+| **Pré-condições** | Empresa existente; contas das linhas existentes. |
+
+### `update-recurring-template`
+
+Atualiza um modelo recorrente (nome, frequência, vigência, tipo, remark, auto_submit, linhas e/ou status).
+
+| | |
+|---|---|
+| **Entradas** | --template-id (obrigatório); opcionais --template-name, --frequency, --end-date, --entry-type, --remark, --auto-submit, --lines, --template-status (apenas 'active'/'paused'). |
+| **Saídas** | status='updated', template_id, updated_fields. |
+| **Regras** | Template deve existir e status != 'completed'. frequency/entry_type validados; lines revalidadas e contas verificadas; template_status só pode ser 'active' ou 'paused'; erro 'No fields to update' se nada informado. |
+| **Efeitos colaterais** | UPDATE em recurring_journal_template (campos informados + updated_at); grava audit_log; commit. |
+| **Pré-condições** | Template existente não 'completed'. |
 
 ## Consulta de modelos
 
-**Objetivo.** Consultar um modelo recorrente em detalhe ou listar os modelos de uma empresa.
+**Objetivo.** Listar e detalhar modelos de lançamentos recorrentes (somente leitura).
 
-**Ações:**
-- `get-recurring-template` — Retorna um modelo recorrente completo, com as linhas em JSON decodificado.
-- `list-recurring-templates` — Lista modelos recorrentes de uma empresa, opcionalmente filtrando por status, com paginação.
+### `list-recurring-templates`
 
-| Campo | Detalhe |
+Lista os modelos recorrentes de uma empresa com paginação.
+
+| | |
 |---|---|
-| **Entradas** | get: --template-id. list: --company-id ou --company (nome), --template-status opcional, --limit (default 20), --offset (default 0). |
-| **Saídas** | get: todos os campos do modelo (frequência, datas, next_run_date, last_generated_date, entry_type, auto_submit, status, lines). list: templates[], total_count, limit, offset, has_more. |
-| **Regras de negócio** | get falha se o modelo não existir e tenta decodificar o JSON das linhas. list resolve empresa por id/nome e ordena por next_run_date ascendente. |
-| **Efeitos colaterais** | Nenhum (somente leitura). |
-| **Pré-condições** | Modelo existente (get); empresa existente (list). |
+| **Entradas** | company resolvido por --company-id ou --company (obrigatório); --status (filtro opcional); --limit (default 20), --offset (default 0). |
+| **Saídas** | templates[] (id, naming_series, name, frequency, start_date, end_date, next_run_date, last_generated_date, entry_type, auto_submit, remark, status), total_count, limit, offset, has_more. |
+| **Regras** | Filtro obrigatório por company_id; filtro opcional por status; ordenado por next_run_date asc. |
+| **Efeitos colaterais** | nenhum (leitura). |
+| **Pré-condições** | Empresa identificável por id ou nome. |
+
+### `get-recurring-template`
+
+Retorna um modelo recorrente com todos os campos, incluindo as linhas parseadas.
+
+| | |
+|---|---|
+| **Entradas** | --template-id (obrigatório). |
+| **Saídas** | Todos os campos do template (row_to_dict), com 'lines' convertido de JSON para array quando possível. |
+| **Regras** | Template deve existir (senão erro 'not found'); tenta json.loads em lines (ignora se falhar). |
+| **Efeitos colaterais** | nenhum (leitura). |
+| **Pré-condições** | Template existente. |
 
 ## Processamento de recorrências
 
-**Objetivo.** Gerar automaticamente os lançamentos a partir dos modelos recorrentes vencidos de uma empresa em determinada data de corte.
+**Objetivo.** Gerar lançamentos a partir dos modelos recorrentes vencidos e avançar o calendário de execução.
 
-**Ações:**
-- `process-recurring` — Varre modelos ativos com next_run_date <= data de corte, gera os lançamentos e avança o próximo agendamento.
+### `process-recurring`
 
-| Campo | Detalhe |
+Gera lançamentos de todos os modelos ativos vencidos (next_run_date <= data) e avança suas datas de execução.
+
+| | |
 |---|---|
-| **Entradas** | --company-id e --as-of-date opcional (default data atual UTC). |
-| **Saídas** | generated (quantidade) e results[] com template_id, template_name, journal_entry_id, naming_series, posting_date, je_status, next_run_date e template_status por modelo processado. |
-| **Regras de negócio** | Processa apenas modelos status='active' com next_run_date <= as_of_date (idempotente em relação à data). Para cada um: cria o lançamento com posting_date = next_run_date, calcula totais; se auto_submit=1, valida e posta no GL e marca 'submitted' (falha de auto-submit deixa o lançamento como 'draft', sem abortar o lote). Avança next_run_date conforme a frequência (com clamp de fim de mês); se ultrapassar end_date, marca o modelo como 'completed' e zera o próximo agendamento. |
-| **Efeitos colaterais** | Insere journal_entry (draft ou submitted) e journal_entry_line para cada modelo vencido; quando auto_submit, INSERE entradas no gl_entry. Atualiza next_run_date, last_generated_date e status do modelo (active/completed). Registra auditoria (process-recurring). Sem SLE de estoque ou payment_ledger. |
-| **Pré-condições** | Empresa existente; modelos ativos com linhas válidas; para auto-submit, contas não congeladas e ano fiscal/período aberto na data de postagem. |
+| **Entradas** | --company-id (obrigatório); --as-of-date (opcional, default data atual UTC). |
+| **Saídas** | generated (contagem), results[] (template_id, template_name, journal_entry_id, naming_series, posting_date, je_status, next_run_date, template_status). |
+| **Regras** | Idempotente: só modelos status='active' com next_run_date<=as_of_date. Cria JE 'draft' com posting_date=next_run_date; se auto_submit, valida e posta GL e marca 'submitted' (falha mantém 'draft'). Avança next_run_date por _advance_date; se passar de end_date marca template 'completed'. |
+| **Efeitos colaterais** | INSERT journal_entry (draft) + journal_entry_line por modelo; se auto_submit, INSERT em gl_entry e UPDATE je.status='submitted'; UPDATE recurring_journal_template (next_run_date, last_generated_date, status); grava audit_log; commit. |
+| **Pré-condições** | --company-id informado; modelos recorrentes ativos com next_run_date vencido. |
+
+## Exclusão de modelos
+
+**Objetivo.** Remover modelos de lançamentos recorrentes.
+
+### `delete-recurring-template`
+
+Exclui um modelo de lançamento recorrente.
+
+| | |
+|---|---|
+| **Entradas** | --template-id (obrigatório). |
+| **Saídas** | status='deleted', deleted=true. |
+| **Regras** | Template deve existir (senão erro 'not found'). Apesar do docstring mencionar soft delete, o código executa DELETE físico da linha. |
+| **Efeitos colaterais** | DELETE em recurring_journal_template; grava audit_log; commit. |
+| **Pré-condições** | Template existente. |
 
 ## Status
 
-**Objetivo.** Apresentar um panorama agregado dos lançamentos e modelos recorrentes de uma empresa por status.
+**Objetivo.** Resumir contagens de lançamentos e de modelos recorrentes por status para uma empresa.
 
-**Ações:**
-- `status` — Conta lançamentos por status (draft/submitted/cancelled/amended) e modelos recorrentes por status.
+### `status`
 
-| Campo | Detalhe |
+Mostra a contagem de lançamentos por status e de modelos recorrentes por status para a empresa.
+
+| | |
 |---|---|
-| **Entradas** | --company-id ou --company (nome). |
-| **Saídas** | total e contagens por status (draft, submitted, cancelled, amended) dos lançamentos, mais recurring_templates com contagens (active, paused, completed). |
-| **Regras de negócio** | Resolve a empresa por id ou nome; agrupa journal_entry e recurring_journal_template por status filtrando por company_id. |
-| **Efeitos colaterais** | Nenhum (somente leitura). |
-| **Pré-condições** | Empresa existente; tabelas journal_entry e recurring_journal_template presentes. |
+| **Entradas** | company resolvido por --company-id ou --company (obrigatório). |
+| **Saídas** | total, draft, submitted, cancelled, amended e recurring_templates (active, paused, completed). |
+| **Regras** | Filtro obrigatório por company_id (resolve_company_id); agrega journal_entry e recurring_journal_template por status via GROUP BY. |
+| **Efeitos colaterais** | nenhum (leitura). |
+| **Pré-condições** | Empresa identificável por id ou nome. |
 

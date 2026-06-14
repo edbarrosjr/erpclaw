@@ -1,166 +1,308 @@
-# Faturamento por Uso — `erpclaw-billing`
+# Faturamento por uso — `erpclaw-billing`
 
-> Specs funcionais (enxutas) por funcionalidade. Geradas do código: `scripts/erpclaw-billing/db_query.py`. 10 funcionalidades · 22 ações.
+> Spec funcional por ação. Gerada de `scripts/erpclaw-billing/db_query.py`. 10 funcionalidades · 22 ações.
 
 ## Medidores
 
-**Objetivo.** Cadastrar e gerenciar medidores (pontos de consumo) vinculados a um cliente, com tipo de serviço, ponto/endereço de serviço, plano de tarifa opcional e ciclo de vida operacional.
+**Objetivo.** Cadastrar, atualizar, consultar e listar medidores (meters) vinculados a clientes e planos de tarifa.
 
-**Ações:**
-- `add-meter` — Registra um novo medidor para um cliente, gerando meter_number sequencial; status inicial fixo 'active'.
-- `update-meter` — Atualiza configuracao do medidor: ponto de servico (--name -> service_point_id), status e/ou plano de tarifa.
-- `get-meter` — Retorna o medidor com a ultima leitura (latest_reading) e a contagem total de leituras.
-- `list-meters` — Lista medidores com join no nome do cliente e filtros por cliente, tipo de servico e status, paginado.
+### `add-meter`
 
-| Campo | Detalhe |
+Registra um novo medidor para um cliente.
+
+| | |
 |---|---|
-| **Entradas** | add-meter: --customer-id, --meter-type (obrigatorios), --unit (vira metadata.uom), --name (ponto de servico), --address, --rate-plan-id, --install-date. update-meter: --meter-id + --name/--status/--rate-plan-id. list-meters: --customer-id, --meter-type, --status, --limit, --offset. |
-| **Saídas** | add-meter/update-meter/get-meter retornam {meter:{...}} (get-meter adiciona latest_reading e reading_count). list-meters retorna {meters:[...], total_count, limit, offset, has_more}. |
-| **Regras de negócio** | meter-type deve estar em VALID_SERVICE_TYPES (electricity, water, gas, telecom, saas, parking, rental, waste, custom). status deve estar em VALID_METER_STATUSES (active, disconnected, removed, suspended). Cliente deve existir; se informado, rate-plan deve existir. update-meter exige ao menos um campo; --name grava em service_point_id. company_id e herdado do cliente. |
-| **Efeitos colaterais** | Insere/atualiza linha em meter; add-meter consome sequencia de naming (get_next_name) e grava metadata.uom. Registra auditoria (audit) em add-meter e update-meter. Nenhuma postagem em GL, SLE de estoque ou payment_ledger. |
-| **Pré-condições** | Tabela company instalada (REQUIRED_TABLES). Cliente (customer) existente com company_id. Plano de tarifa existente se --rate-plan-id for informado. |
+| **Entradas** | --customer-id (obrigatório); --meter-type (obrigatório, deve estar em electricity/water/gas/telecom/saas/parking/rental/waste/custom); --rate-plan-id (opcional, validado se informado); --unit (opcional, vira metadata.uom); --name (opcional, gravado em service_point_id); --address (opcional, service_point_address); --install-date (opcional). |
+| **Saídas** | meter: linha completa do medidor inserido (id, meter_number, customer_id, service_type, status, etc.). |
+| **Regras** | Valida meter_type contra VALID_SERVICE_TYPES; exige cliente existente; valida rate_plan_id se informado; gera meter_number via get_next_name; status inicial fixado em 'active'. |
+| **Efeitos colaterais** | INSERT em meter; conn.commit; audit_log via audit('add-meter'). Sem postagens contábeis. |
+| **Pré-condições** | Cliente existente; tabela meter e (se usado) rate_plan. |
+
+### `update-meter`
+
+Atualiza configuração de um medidor existente.
+
+| | |
+|---|---|
+| **Entradas** | --meter-id (obrigatório); --name (opcional, atualiza service_point_id); --status (opcional, deve estar em active/disconnected/removed/suspended); --rate-plan-id (opcional, validado se informado). |
+| **Saídas** | meter: linha completa atualizada. |
+| **Regras** | Exige medidor existente; valida status contra VALID_METER_STATUSES; valida rate_plan_id se informado; erro 'No fields to update' se nenhum campo fornecido; sempre seta updated_at. |
+| **Efeitos colaterais** | UPDATE em meter; conn.commit; audit_log via audit('update-meter') com old_values. Sem postagens contábeis. |
+| **Pré-condições** | Medidor existente; rate plan existente se informado. |
+
+### `get-meter`
+
+Retorna um medidor com sua última leitura e contagem de leituras.
+
+| | |
+|---|---|
+| **Entradas** | --meter-id (obrigatório). |
+| **Saídas** | meter: linha do medidor acrescida de latest_reading (última leitura por reading_date desc, ou null) e reading_count. |
+| **Regras** | Exige medidor existente; leitura mais recente ordenada por reading_date desc limit 1. |
+| **Efeitos colaterais** | nenhum (leitura). |
+| **Pré-condições** | Medidor existente. |
+
+### `list-meters`
+
+Lista medidores com filtros opcionais e nome do cliente.
+
+| | |
+|---|---|
+| **Entradas** | --customer-id, --meter-type, --status (todos filtros opcionais); --limit (default 20), --offset (default 0). |
+| **Saídas** | meters (com customer_name via left join), total_count, limit, offset, has_more. |
+| **Regras** | Filtros aplicados em count e data query; ordena por created_at desc; paginação via limit/offset. |
+| **Efeitos colaterais** | nenhum (leitura). |
+| **Pré-condições** | Tabelas meter e customer. |
 
 ## Leituras
 
-**Objetivo.** Registrar leituras de medidor calculando consumo automaticamente a partir da leitura anterior, com tipo e fonte da leitura, e manter o ultimo valor/data no medidor.
+**Objetivo.** Registrar leituras de medidor com cálculo automático de consumo e listar o histórico de leituras.
 
-**Ações:**
-- `add-meter-reading` — Registra leitura com calculo automatico de consumo (delta vs leitura anterior) e tratamento de rollover.
-- `list-meter-readings` — Lista leituras de um medidor com filtros de data (from/to), ordenadas por data desc, paginado.
+### `add-meter-reading`
 
-| Campo | Detalhe |
+Registra uma leitura de medidor calculando o consumo automaticamente.
+
+| | |
 |---|---|
-| **Entradas** | add-meter-reading: --meter-id, --reading-date, --reading-value (obrigatorios), --reading-type (default 'actual'), --source (default 'manual'), --uom. list-meter-readings: --meter-id (obrigatorio), --from-date, --to-date, --limit, --offset. |
-| **Saídas** | add-meter-reading retorna {reading:{...}} com previous_reading_value e consumption. list-meter-readings retorna {readings:[...], total_count, limit, offset, has_more}. |
-| **Regras de negócio** | reading-type em VALID_READING_TYPES (actual, estimated, adjusted, rollover); source em VALID_READING_SOURCES (manual, smart_meter, api, import, estimated). consumption = leitura - leitura anterior; se delta < 0 trata como rollover (consumption = valor lido) e converte reading_type 'actual' em 'rollover'. UOM resolvida do argumento ou de metadata.uom do medidor. validated gravado como 0 (nao validada). |
-| **Efeitos colaterais** | Insere linha em meter_reading e atualiza meter.last_reading_date/last_reading_value/updated_at na mesma transacao. Registra auditoria. Nenhuma postagem em GL, SLE de estoque ou payment_ledger. |
-| **Pré-condições** | Medidor (meter) existente. Para calculo de consumo, leitura anterior registrada no medidor (last_reading_value). |
+| **Entradas** | --meter-id (obrigatório); --reading-date (obrigatório); --reading-value (obrigatório); --reading-type (opcional, default 'actual', em actual/estimated/adjusted/rollover); --source (opcional, default 'manual', em manual/smart_meter/api/import/estimated); --uom (opcional, herda de metadata.uom do medidor). |
+| **Saídas** | reading: linha completa da leitura inserida (consumption, previous_reading_value, reading_type, etc.). |
+| **Regras** | Exige medidor existente; valida reading_type e source; consumption = reading_value - last_reading_value; se diff<0 trata rollover (consumption=reading_value e reading_type vira 'rollover' se era 'actual'); validated gravado como 0. |
+| **Efeitos colaterais** | INSERT em meter_reading; UPDATE meter (last_reading_date, last_reading_value, updated_at); conn.commit; audit_log via audit('add-meter-reading'). Sem postagens contábeis. |
+| **Pré-condições** | Medidor existente. |
+
+### `list-meter-readings`
+
+Lista leituras de um medidor com filtros de data opcionais.
+
+| | |
+|---|---|
+| **Entradas** | --meter-id (obrigatório); --from-date, --to-date (filtros opcionais sobre reading_date); --limit (default 20), --offset (default 0). |
+| **Saídas** | readings, total_count, limit, offset, has_more. |
+| **Regras** | Exige meter-id; aplica filtros de data; ordena por reading_date desc; paginação. |
+| **Efeitos colaterais** | nenhum (leitura). |
+| **Pré-condições** | Tabela meter_reading. |
 
 ## Eventos de Uso
 
-**Objetivo.** Ingerir eventos de uso (quantidade por timestamp) por medidor, de forma unitaria ou em lote, com deduplicacao por idempotency_key, para posterior agregacao no bill run.
+**Objetivo.** Ingerir eventos de consumo individuais ou em lote, com deduplicação por chave de idempotência.
 
-**Ações:**
-- `add-usage-event` — Registra um evento de uso unico; se idempotency_key ja existir, retorna o existente marcado deduplicated.
-- `add-usage-events-batch` — Ingere em lote um array JSON de eventos, deduplicando por idempotency_key e acumulando erros por indice.
+### `add-usage-event`
 
-| Campo | Detalhe |
+Registra um único evento de uso para um medidor.
+
+| | |
 |---|---|
-| **Entradas** | add-usage-event: --meter-id, --event-date, --quantity (obrigatorios), --event-type (default 'usage'), --properties (metadata), --idempotency-key. add-usage-events-batch: --events (array JSON com meter_id, event_date, quantity, opcional event_type/idempotency_key/properties). |
-| **Saídas** | add-usage-event retorna {usage_event:{...}} (ou {usage_event, deduplicated:true} se duplicado). add-usage-events-batch retorna {inserted, duplicates, errors:[{index,error}], total_processed}. |
-| **Regras de negócio** | customer_id e derivado do medidor. Eventos sao gravados com processed=0 (nao processados). Deduplicacao: idempotency_key existente nao gera novo registro (retorna existente / conta como duplicate). No lote, registros sem meter_id, event_date ou quantity sao reportados em errors e pulados; medidor inexistente gera erro por indice. |
-| **Efeitos colaterais** | Insere linha(s) em usage_event (processed=0). add-usage-event registra auditoria; o batch NAO registra auditoria. Nenhuma postagem em GL, SLE de estoque ou payment_ledger. |
-| **Pré-condições** | Medidor (meter) existente para cada evento. Cliente vinculado ao medidor. |
+| **Entradas** | --meter-id (obrigatório); --event-date (obrigatório, vira timestamp); --quantity (obrigatório); --event-type (opcional, default 'usage'); --properties (opcional, metadata); --idempotency-key (opcional, dedup). |
+| **Saídas** | usage_event: linha completa do evento; se duplicado, retorna o evento existente com deduplicated=true. |
+| **Regras** | Exige medidor existente; customer_id derivado do medidor; se idempotency_key já existir, retorna evento existente sem inserir (deduplicated); processed gravado como 0. |
+| **Efeitos colaterais** | INSERT em usage_event (exceto quando deduplicado); conn.commit; audit_log via audit('add-usage-event'). Sem postagens contábeis. |
+| **Pré-condições** | Medidor existente. |
+
+### `add-usage-events-batch`
+
+Ingere eventos de uso em massa a partir de um array JSON.
+
+| | |
+|---|---|
+| **Entradas** | --events (obrigatório, array JSON; cada item: meter_id, event_date, quantity obrigatórios, event_type default 'usage', idempotency_key e properties opcionais). |
+| **Saídas** | inserted, duplicates, errors (lista com index/erro), total_processed. |
+| **Regras** | Valida que --events é array não vazio; por item valida campos obrigatórios e existência do medidor (erros acumulados, não abortam o lote); pula duplicados por idempotency_key; processed=0. |
+| **Efeitos colaterais** | INSERT em usage_event para cada item válido; um único conn.commit ao final. NÃO grava audit_log. Sem postagens contábeis. |
+| **Pré-condições** | Medidores referenciados existentes; tabela usage_event. |
 
 ## Planos de Tarifa
 
-**Objetivo.** Criar e manter planos de precificacao (rate plans) com encargos base, encargo minimo, taxa de excedente e faixas (tiers), suportando varios modelos de cobranca.
+**Objetivo.** Criar, atualizar, consultar e listar planos de tarifa (rate plans) com suas faixas (tiers).
 
-**Ações:**
-- `add-rate-plan` — Cria um plano de tarifa, opcionalmente com faixas (tiers) em array JSON; moeda default USD.
-- `update-rate-plan` — Atualiza campos do plano e/ou substitui integralmente as faixas (delete + reinsert).
-- `get-rate-plan` — Retorna o plano com suas faixas ordenadas por sort_order.
-- `list-rate-plans` — Lista planos com filtro opcional por service_type, paginado.
+### `add-rate-plan`
 
-| Campo | Detalhe |
+Cria um plano de tarifa/preço com faixas opcionais.
+
+| | |
 |---|---|
-| **Entradas** | add-rate-plan: --name, --billing-model (obrigatorios), --service-type, --base-charge, --base-charge-period, --effective-from/--effective-to, --minimum-charge, --minimum-commitment, --overage-rate, --tiers (JSON). update-rate-plan: --rate-plan-id + name/base-charge/effective-to/minimum-charge/overage-rate e/ou --tiers. list: --service-type, --limit, --offset. |
-| **Saídas** | add/update/get-rate-plan retornam {rate_plan:{..., tiers:[...]}}. list-rate-plans retorna {rate_plans:[...], total_count, limit, offset, has_more}. |
-| **Regras de negócio** | billing-model deve estar em VALID_PLAN_TYPES (flat, tiered, time_of_use, demand, volume_discount, prepaid_credit, hybrid). base-charge-period (se informado) em VALID_BASE_CHARGE_PERIODS (monthly, quarterly, annually). effective_from default = data atual. Tiers com tier_start/tier_end/rate/fixed_charge/time_of_use_*/demand_type e sort_order = indice. update substitui TODAS as faixas quando --tiers e enviado; exige pelo menos um campo ou tiers. |
-| **Efeitos colaterais** | Insere/atualiza rate_plan e insere/recria rate_tier (update faz DELETE de todas as faixas antes de reinserir). Registra auditoria em add e update. Nenhuma postagem em GL, SLE de estoque ou payment_ledger. |
-| **Pré-condições** | Tabela company instalada. Nenhuma dependencia de cliente; planos sao globais (sem company_id no insert). |
+| **Entradas** | --name (obrigatório); --billing-model (obrigatório, em flat/tiered/time_of_use/demand/volume_discount/prepaid_credit/hybrid); --service-type, --base-charge, --base-charge-period (em monthly/quarterly/annually), --effective-from (default hoje), --effective-to, --minimum-charge, --minimum-commitment, --overage-rate (opcionais); --tiers (array JSON opcional). |
+| **Saídas** | rate_plan: linha do plano com array tiers. |
+| **Regras** | Valida billing_model contra VALID_PLAN_TYPES e base_charge_period; currency fixado em 'USD'; tiers inseridos com sort_order pela ordem do array; effective_from default = data atual. |
+| **Efeitos colaterais** | INSERT em rate_plan e (se houver) rate_tier; conn.commit; audit_log via audit('add-rate-plan'). Sem postagens contábeis. |
+| **Pré-condições** | Tabelas rate_plan e rate_tier. |
+
+### `update-rate-plan`
+
+Atualiza configuração e/ou faixas de um plano de tarifa.
+
+| | |
+|---|---|
+| **Entradas** | --rate-plan-id (obrigatório); --name, --base-charge, --effective-to, --minimum-charge, --overage-rate (opcionais); --tiers (array JSON opcional — substitui todas as faixas). |
+| **Saídas** | rate_plan: linha atualizada com array tiers. |
+| **Regras** | Exige plano existente; erro 'No fields to update' se nenhum campo nem tiers; se --tiers fornecido, DELETE todas as faixas e reinsere; seta updated_at quando há campos escalares. |
+| **Efeitos colaterais** | UPDATE em rate_plan; DELETE+INSERT em rate_tier se --tiers; conn.commit; audit_log via audit('update-rate-plan') com old_values. Sem postagens contábeis. |
+| **Pré-condições** | Plano de tarifa existente. |
+
+### `get-rate-plan`
+
+Retorna um plano de tarifa com suas faixas.
+
+| | |
+|---|---|
+| **Entradas** | --rate-plan-id (obrigatório). |
+| **Saídas** | rate_plan: linha do plano com array tiers (ordenado por sort_order). |
+| **Regras** | Exige plano existente. |
+| **Efeitos colaterais** | nenhum (leitura). |
+| **Pré-condições** | Plano de tarifa existente. |
+
+### `list-rate-plans`
+
+Lista planos de tarifa com filtro opcional por tipo de serviço.
+
+| | |
+|---|---|
+| **Entradas** | --service-type (filtro opcional); --limit (default 20), --offset (default 0). |
+| **Saídas** | rate_plans, total_count, limit, offset, has_more. |
+| **Regras** | Filtro por service_type; ordena por created_at desc; paginação. |
+| **Efeitos colaterais** | nenhum (leitura). |
+| **Pré-condições** | Tabela rate_plan. |
 
 ## Cálculo de Tarifação
 
-**Objetivo.** Calcular o encargo de um consumo contra um plano de tarifa (motor de rating puro), retornando encargo de uso, encargo base, total e detalhamento por faixa, sem persistir nada.
+**Objetivo.** Calcular o valor cobrado para um consumo contra um plano de tarifa, sem persistir nada.
 
-**Ações:**
-- `rate-consumption` — Calcula os encargos de um consumo informado contra um plano (flat, tiered ou volume_discount) e retorna o breakdown.
+### `rate-consumption`
 
-| Campo | Detalhe |
+Calcula os encargos de um consumo contra um plano de tarifa (função pura).
+
+| | |
 |---|---|
-| **Entradas** | --rate-plan-id, --consumption (obrigatorios). |
-| **Saídas** | {calculation:{usage_charge, base_charge, total_charge, breakdown:[...], rate_plan_name, plan_type, consumption}}. |
-| **Regras de negócio** | plan_type deve estar em VALID_SUPPORTED_PLAN_TYPES (flat, tiered, volume_discount); demais tipos retornam erro 'not yet supported'. flat: rate da 1a faixa x consumo. tiered: soma por bandas (band_width=tier_end-tier_start) consumindo o restante. volume_discount: aplica a taxa da faixa onde o consumo se enquadra (>=start e <end). total = base + usage_charge; se < minimum_charge, eleva ao minimo. Arredondamento via round_currency (ROUND_HALF_UP). |
-| **Efeitos colaterais** | Nenhum (somente leitura) — funcao pura, nao grava nem audita. |
-| **Pré-condições** | Plano de tarifa existente, do tipo flat/tiered/volume_discount, com faixas cadastradas (flat exige ao menos uma faixa). |
+| **Entradas** | --rate-plan-id (obrigatório); --consumption (obrigatório). |
+| **Saídas** | calculation: usage_charge, base_charge, total_charge, breakdown (por faixa), rate_plan_name, plan_type, consumption. |
+| **Regras** | Exige plano existente; só suporta plan_type em flat/tiered/volume_discount (erro caso contrário); flat usa tiers[0]; tiered acumula por banda; volume_discount aplica a taxa da faixa correspondente; aplica minimum_charge se total < mínimo. |
+| **Efeitos colaterais** | nenhum (leitura/cálculo, não persiste). |
+| **Pré-condições** | Plano de tarifa existente com faixas compatíveis. |
 
 ## Ciclos de Faturamento
 
-**Objetivo.** Criar e consultar periodos de faturamento (billing_period) por cliente/medidor, controlando datas, consumo, encargos, ajustes, impostos e total, alem de gerar faturas a partir de periodos tarifados.
+**Objetivo.** Criar períodos de faturamento (billing periods), consultar e listar com totais e ajustes.
 
-**Ações:**
-- `create-billing-period` — Cria um periodo de faturamento 'open' validando sobreposicao com periodos nao-void existentes do medidor.
-- `generate-invoices` — Gera faturas de venda a partir de periodos com status 'rated', chamando a skill selling se disponivel, e marca o periodo como 'invoiced'.
-- `list-billing-periods` — Lista periodos com nome do cliente e numero do medidor, com filtros por cliente/medidor/status/datas, paginado.
-- `get-billing-period` — Retorna o periodo com nomes de cliente/medidor/plano e a lista de ajustes.
+### `create-billing-period`
 
-| Campo | Detalhe |
+Cria um período de faturamento para um cliente/medidor.
+
+| | |
 |---|---|
-| **Entradas** | create-billing-period: --customer-id, --meter-id, --from-date, --to-date (obrigatorios), --rate-plan-id (senao usa o do medidor). generate-invoices: --billing-period-ids (array JSON). list: --customer-id/--meter-id/--status/--from-date/--to-date/--limit/--offset. get: --billing-period-id. |
-| **Saídas** | create/get retornam {billing_period:{...}} (get inclui adjustments). generate-invoices retorna {invoiced, results:[{billing_period_id, invoice_id, status}]}. list retorna {billing_periods:[...], total_count, limit, offset, has_more}. |
-| **Regras de negócio** | create exige plano (argumento ou do medidor) existente; rejeita periodo sobreposto (mesmo medidor, status != void, com interseccao de datas). Periodo nasce 'open' com totais zerados. status validos em VALID_BILLING_PERIOD_STATUSES (open, rated, invoiced, paid, disputed, void). generate-invoices so processa periodos 'rated'; demais status retornam erro no item. |
-| **Efeitos colaterais** | create-billing-period insere billing_period e registra auditoria. generate-invoices INVOCA via subprocess a skill selling (add-sales-invoice) — efeito colateral real podendo criar sales_invoice no dominio de vendas (e seus efeitos a jusante) — e atualiza billing_period para 'invoiced' com invoice_id/invoiced_at. Nao posta diretamente em GL/SLE/payment_ledger nesta skill. |
-| **Pré-condições** | Cliente e medidor existentes; plano de tarifa existente. Para faturar: periodo em status 'rated'; tabela sales_invoice e script da skill selling presentes (senao invoice_id fica nulo mas status vira 'invoiced'). |
+| **Entradas** | --customer-id (obrigatório); --meter-id (obrigatório); --from-date (obrigatório); --to-date (obrigatório); --rate-plan-id (opcional, senão usa o do medidor). |
+| **Saídas** | billing_period: linha criada com totais zerados e status 'open'. |
+| **Regras** | Exige cliente e medidor existentes; rate_plan_id = informado ou do medidor (erro se nenhum); valida plano; rejeita período sobreposto (mesmo meter, status != void, datas que se cruzam); status inicial 'open' e todos os valores em '0'. |
+| **Efeitos colaterais** | INSERT em billing_period; conn.commit; audit_log via audit('create-billing-period'). Sem postagens contábeis. |
+| **Pré-condições** | Cliente, medidor e plano de tarifa existentes; nenhum período sobreposto. |
+
+### `list-billing-periods`
+
+Lista períodos de faturamento com filtros opcionais.
+
+| | |
+|---|---|
+| **Entradas** | --customer-id, --meter-id, --status, --from-date (sobre period_start), --to-date (sobre period_end) (filtros opcionais); --limit (default 20), --offset (default 0). |
+| **Saídas** | billing_periods (com customer_name e meter_number), total_count, limit, offset, has_more. |
+| **Regras** | Aplica filtros em count e data; ordena por created_at desc; paginação. |
+| **Efeitos colaterais** | nenhum (leitura). |
+| **Pré-condições** | Tabelas billing_period, customer, meter. |
+
+### `get-billing-period`
+
+Retorna um período de faturamento com seus ajustes.
+
+| | |
+|---|---|
+| **Entradas** | --billing-period-id (obrigatório). |
+| **Saídas** | billing_period: linha (com customer_name, meter_number, rate_plan_name) e array adjustments. |
+| **Regras** | Exige período existente; ajustes ordenados por created_at. |
+| **Efeitos colaterais** | nenhum (leitura). |
+| **Pré-condições** | Período de faturamento existente. |
 
 ## Bill Run
 
-**Objetivo.** Executar o processamento de faturamento de uma empresa: agregar consumo de leituras e eventos nao processados, tarifar e criar/atualizar periodos de faturamento como 'rated'.
+**Objetivo.** Executar o processo de faturamento em lote (agregar consumo, tarifar, criar/atualizar períodos) e gerar faturas a partir de períodos tarifados.
 
-**Ações:**
-- `run-billing` — Roda o faturamento de todos os medidores ativos com plano da empresa: agrega consumo, calcula encargos e gera/atualiza periodos 'rated'.
+### `run-billing`
 
-| Campo | Detalhe |
+Executa o bill run: agrega consumo, tarifa e cria/atualiza períodos para todos os medidores ativos da empresa.
+
+| | |
 |---|---|
-| **Entradas** | --company-id, --billing-date (obrigatorios); --from-date (default billing-date menos 30 dias); --to-date (default billing-date). |
-| **Saídas** | {periods_created, period_ids:[...], total_billed} (ou mensagem se nao houver clientes/medidores). |
-| **Regras de negócio** | Processa apenas medidores com status 'active' e rate_plan_id nao nulo dos clientes da empresa. Pula medidores ja faturados no periodo (status rated/invoiced/paid). Plano deve ter plan_type suportado (flat/tiered/volume_discount). Consumo total = soma de meter_reading.consumption no periodo + soma de usage_event.quantity nao processados no periodo. subtotal = total_charge (antes de ajustes). Periodo 'open' existente e atualizado para 'rated'; senao cria novo 'rated'. |
-| **Efeitos colaterais** | Insere ou atualiza linhas em billing_period (status 'rated', rated_at). Marca usage_event como processed=1 e vincula billing_period_id. Registra auditoria com periodos e total faturado. Nao posta em GL/SLE/payment_ledger (a faturacao contabil ocorre em generate-invoices). |
-| **Pré-condições** | Empresa (company) existente. Clientes com medidores 'active' e plano de tarifa atribuido. Leituras com consumo e/ou eventos de uso nao processados no intervalo. |
+| **Entradas** | --company-id (obrigatório); --billing-date (obrigatório); --from-date (opcional, default billing-date menos 30 dias); --to-date (opcional, default billing-date). |
+| **Saídas** | periods_created, period_ids, total_billed (arredondado). |
+| **Regras** | Exige empresa existente; processa medidores 'active' com rate_plan_id; pula medidores já com período 'rated'/'invoiced'/'paid'; só tarifa plan_type suportado (flat/tiered/volume_discount); soma consumo de meter_reading e de usage_event não processados na janela; cria período novo ou atualiza período 'open' existente para status 'rated'. |
+| **Efeitos colaterais** | INSERT ou UPDATE em billing_period (status -> 'rated', seta rated_at); UPDATE em usage_event (processed=1, billing_period_id); conn.commit; audit_log via audit('run-billing'). Sem postagens contábeis. |
+| **Pré-condições** | Empresa existente com clientes, medidores ativos com plano e leituras/eventos na janela. |
+
+### `generate-invoices`
+
+Cria faturas de venda a partir de períodos de faturamento tarifados.
+
+| | |
+|---|---|
+| **Entradas** | --billing-period-ids (obrigatório, array JSON de IDs). |
+| **Saídas** | invoiced (contagem), results (por período: billing_period_id, invoice_id, status ou error). |
+| **Regras** | Valida array JSON; processa só períodos com status 'rated' (senão registra erro); cria sales_invoice chamando o script de selling via subprocess se a tabela sales_invoice existir (best-effort, invoice_id pode ficar null); sempre marca o período como 'invoiced'. |
+| **Efeitos colaterais** | Subprocess opcional para selling (add-sales-invoice) que pode inserir sales_invoice/gl_entry no outro skill; UPDATE em billing_period (status -> 'invoiced', invoiced_at, invoice_id); conn.commit. NÃO grava audit_log próprio. |
+| **Pré-condições** | Períodos de faturamento com status 'rated'; opcionalmente skill selling instalado para a fatura real. |
 
 ## Ajustes
 
-**Objetivo.** Aplicar ajustes financeiros (credito, multa, deposito, reembolso, proracao, desconto, penalidade, write-off) a um periodo de faturamento, recalculando os totais do periodo.
+**Objetivo.** Adicionar ajustes (crédito, multa, desconto, etc.) a um período de faturamento e recalcular seus totais.
 
-**Ações:**
-- `add-billing-adjustment` — Registra um ajuste no periodo e recalcula adjustments_total, subtotal e grand_total.
+### `add-billing-adjustment`
 
-| Campo | Detalhe |
+Adiciona um ajuste a um período de faturamento e recalcula os totais.
+
+| | |
 |---|---|
-| **Entradas** | --billing-period-id, --amount, --adjustment-type (obrigatorios); --reason, --approved-by. |
-| **Saídas** | {adjustment:{..., updated_grand_total}}. |
-| **Regras de negócio** | adjustment-type deve estar em VALID_ADJUSTMENT_TYPES (credit, late_fee, deposit, refund, proration, discount, penalty, write_off). Periodo deve existir. Recalculo: adjustments_total = soma (DecimalSum) dos ajustes do periodo; subtotal = base_charge + usage_charge + adjustments_total; grand_total = subtotal + tax_amount; tudo via round_currency. |
-| **Efeitos colaterais** | Insere linha em billing_adjustment e atualiza billing_period (adjustments_total, subtotal, grand_total, updated_at). Registra auditoria. Nenhuma postagem em GL/SLE/payment_ledger. |
-| **Pré-condições** | Periodo de faturamento (billing_period) existente. Tabela billing_adjustment disponivel. |
+| **Entradas** | --billing-period-id (obrigatório); --amount (obrigatório); --adjustment-type (obrigatório, em credit/late_fee/deposit/refund/proration/discount/penalty/write_off); --reason, --approved-by (opcionais). |
+| **Saídas** | adjustment: linha do ajuste inserido acrescida de updated_grand_total. |
+| **Regras** | Valida adjustment_type contra VALID_ADJUSTMENT_TYPES; exige período existente; recalcula adjustments_total (soma via DecimalSum), subtotal = base+usage+adj_total, grand_total = subtotal+tax. |
+| **Efeitos colaterais** | INSERT em billing_adjustment; UPDATE em billing_period (adjustments_total, subtotal, grand_total, updated_at); conn.commit; audit_log via audit('add-billing-adjustment'). Sem postagens contábeis. |
+| **Pré-condições** | Período de faturamento existente. |
 
 ## Créditos Pré-pagos
 
-**Objetivo.** Registrar compromissos pre-pagos (saldo de credito) de um cliente com validade e consultar o saldo remanescente agregado.
+**Objetivo.** Registrar compromissos pré-pagos (prepaid credits) e consultar o saldo remanescente do cliente.
 
-**Ações:**
-- `add-prepaid-credit` — Registra um saldo pre-pago para o cliente (valor original = remanescente), status 'active'.
-- `get-prepaid-balance` — Consulta os saldos pre-pagos do cliente e soma o remanescente dos creditos ativos.
+### `add-prepaid-credit`
 
-| Campo | Detalhe |
+Registra um compromisso/saldo pré-pago para um cliente.
+
+| | |
 |---|---|
-| **Entradas** | add-prepaid-credit: --customer-id, --amount, --valid-until (obrigatorios), --rate-plan-id (opcional). get-prepaid-balance: --customer-id. |
-| **Saídas** | add-prepaid-credit retorna {prepaid_credit:{...}}. get-prepaid-balance retorna {customer_id, active_credits, total_remaining, balances:[...]}. |
-| **Regras de negócio** | Cliente deve existir. Se --rate-plan-id nao informado, usa um plano com plan_type 'prepaid_credit' ou, na ausencia, o primeiro plano disponivel; se nenhum existir, erro. period_start = data atual, period_end = valid-until. original_amount = remaining_amount = amount; overage_amount=0; status 'active'. status validos em VALID_PREPAID_STATUSES (active, exhausted, expired). get soma remaining_amount apenas de creditos 'active'. |
-| **Efeitos colaterais** | Insere linha em prepaid_credit_balance e registra auditoria. get-prepaid-balance e somente leitura. Nenhuma postagem em GL/SLE/payment_ledger. |
-| **Pré-condições** | Cliente existente. Ao menos um rate_plan cadastrado quando nao se informa --rate-plan-id. |
+| **Entradas** | --customer-id (obrigatório); --amount (obrigatório); --valid-until (obrigatório, vira period_end); --rate-plan-id (opcional; senão usa um plano prepaid_credit ou o primeiro disponível). |
+| **Saídas** | prepaid_credit: linha inserida (original_amount, remaining_amount, status 'active', etc.). |
+| **Regras** | Exige cliente existente; resolve rate_plan_id (informado, ou primeiro plano prepaid_credit, ou primeiro plano; erro se nenhum existir); period_start = data atual; remaining_amount = original_amount; overage_amount '0'; status 'active'. |
+| **Efeitos colaterais** | INSERT em prepaid_credit_balance; conn.commit; audit_log via audit('add-prepaid-credit'). Sem postagens contábeis. |
+| **Pré-condições** | Cliente existente; pelo menos um rate plan existente. |
+
+### `get-prepaid-balance`
+
+Consulta os créditos pré-pagos remanescentes de um cliente.
+
+| | |
+|---|---|
+| **Entradas** | --customer-id (obrigatório). |
+| **Saídas** | customer_id, active_credits, total_remaining (soma dos status 'active', arredondado), balances (todos os registros). |
+| **Regras** | Exige customer-id; soma remaining_amount apenas dos saldos com status 'active'; lista ordenada por created_at desc. |
+| **Efeitos colaterais** | nenhum (leitura). |
+| **Pré-condições** | Tabela prepaid_credit_balance. |
 
 ## Status
 
-**Objetivo.** Fornecer um resumo do dominio de faturamento: contagens de medidores e periodos por status, planos, eventos nao processados e saldos pre-pagos, opcionalmente filtrado por empresa.
+**Objetivo.** Fornecer um resumo geral do estado do faturamento (medidores, períodos, eventos, planos, pré-pagos).
 
-**Ações:**
-- `status` — Retorna metricas agregadas de medidores, periodos, planos, eventos nao processados e creditos pre-pagos.
+### `status`
 
-| Campo | Detalhe |
+Retorna um resumo do faturamento, opcionalmente filtrado por empresa.
+
+| | |
 |---|---|
-| **Entradas** | --company-id (opcional; restringe aos clientes da empresa). |
-| **Saídas** | {meters:{status:cnt}, meters_total, billing_periods:{status:cnt}, billing_periods_total, rate_plans_total, unprocessed_events, prepaid_balances}. |
-| **Regras de negócio** | Se --company-id informado, valida a empresa e restringe medidores/periodos/eventos/pre-pagos aos clientes daquela empresa (IN dinamico). Contagens agrupadas por status para medidores e periodos. unprocessed_events conta usage_event com processed=0. |
-| **Efeitos colaterais** | Nenhum (somente leitura). |
-| **Pré-condições** | Tabela company instalada. Se filtrar, empresa existente. |
+| **Entradas** | --company-id (opcional; se informado, valida empresa e restringe contagens aos clientes dela). |
+| **Saídas** | meters (contagem por status), meters_total, billing_periods (por status), billing_periods_total, rate_plans_total, unprocessed_events, prepaid_balances. |
+| **Regras** | Se company-id, exige empresa existente e filtra por seus customer_ids (IN dinâmico); conta medidores por status, períodos por status, eventos não processados (processed=0), planos e saldos pré-pagos. |
+| **Efeitos colaterais** | nenhum (leitura). |
+| **Pré-condições** | Tabelas meter, billing_period, usage_event, rate_plan, prepaid_credit_balance; empresa existente se filtrada. |
 

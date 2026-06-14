@@ -52,9 +52,19 @@
   .pcard .obj { margin:0 0 8px; font-size:12.5px; color:var(--ink); }
   .pcard .acts { font-size:12px; color:var(--muted); margin-bottom:8px; display:flex; flex-direction:column; gap:2px; }
   .pcard .acts code { color:var(--teal); }
-  .pcard dl { margin:0; display:grid; grid-template-columns:120px 1fr; gap:3px 10px; font-size:11.8px; }
-  .pcard dt { color:#7fd6c9; font-weight:600; }
-  .pcard dd { margin:0; color:#c4d2e2; }
+  .pcard h3.fn { cursor:pointer; display:flex; align-items:center; gap:6px; user-select:none; }
+  .pcard h3.fn:hover { color:#fff; }
+  .caret { color:var(--teal); width:12px; display:inline-block; }
+  .cnt { margin-left:auto; font-size:11px; color:var(--muted); background:#0b1220; border:1px solid var(--line); border-radius:10px; padding:0 7px; }
+  .ptools { font-size:11.5px; color:var(--muted); margin-bottom:10px; display:flex; align-items:center; gap:10px; }
+  .ptools button { padding:3px 9px; font-size:11.5px; }
+  .acts { margin-top:7px; display:flex; flex-direction:column; gap:8px; }
+  .act { border-left:2px solid var(--teal); padding:2px 0 2px 9px; }
+  .act .anm code { color:var(--teal); font-size:12px; }
+  .act .aobj { font-size:12px; color:var(--ink); margin:3px 0 5px; }
+  .act dl { margin:0; display:grid; grid-template-columns:78px 1fr; gap:2px 8px; font-size:11.3px; }
+  .act dt { color:#7fd6c9; font-weight:600; }
+  .act dd { margin:0; color:#c4d2e2; }
   .empty { color:var(--muted); font-size:13px; line-height:1.5; }
   .hint { color:var(--teal); }
 </style>
@@ -79,7 +89,7 @@
   <div id="chart"></div>
   <div id="bars"></div>
 </div>
-<footer>Fonte: <code>scripts/*/db_query.py</code> (núcleo, ~479 ações / 171 funcionalidades em 15 domínios) + <code>scripts/module_registry.json</code> (catálogo, 46 módulos / ~3.169 ações). Specs também em <code>docs/specs/</code>.</footer>
+<footer>Fonte: <code>scripts/*/db_query.py</code> (núcleo, 469 ações / 173 funcionalidades em 15 domínios; clique num bloco → expanda uma funcionalidade p/ ver as ações) + <code>scripts/module_registry.json</code> (catálogo, 46 módulos / ~3.169 ações). Specs também em <code>docs/specs/</code>.</footer>
 
 <aside id="panel">
   <div id="panel-head"><div id="panel-head-title"></div><button onclick="closePanel()">✕ fechar</button></div>
@@ -221,19 +231,30 @@ function openPanel(mod){
   if(!S){
     body.innerHTML=`<p class="empty"><b>${esc(mod)}</b> é um módulo de <b>catálogo</b>. O código não está incluído neste fork air-gapped, então não há spec gerada da fonte.<br><br>Reconstruir este módulo é trabalho de “desenvolver features”.</p>`;
   } else {
-    body.innerHTML=S.functionalities.map(f=>`
+    const totA=S.functionalities.reduce((s,f)=>s+f.acoes.length,0);
+    body.innerHTML=`<div class="ptools">${S.functionalities.length} funcionalidades · ${totA} ações <button id="toggle-all">expandir todas</button></div>`+
+      S.functionalities.map(f=>`
       <div class="pcard">
-        <h3>${esc(f.group)}</h3>
+        <h3 class="fn"><span class="caret">▸</span> ${esc(f.group)} <span class="cnt">${f.acoes.length}</span></h3>
         <p class="obj">${esc(f.objetivo)}</p>
-        <div class="acts">${f.acoes.map(a=>`<div><code>${esc(a.nome)}</code> — ${esc(a.desc)}</div>`).join('')}</div>
-        <dl>
-          <dt>Entradas</dt><dd>${esc(f.entradas)}</dd>
-          <dt>Saídas</dt><dd>${esc(f.saidas)}</dd>
-          <dt>Regras</dt><dd>${esc(f.regras)}</dd>
-          <dt>Efeitos colaterais</dt><dd>${esc(f.efeitos)}</dd>
-          <dt>Pré-condições</dt><dd>${esc(f.precondicoes)}</dd>
-        </dl>
+        <div class="acts" hidden>${f.acoes.map(a=>`
+          <div class="act">
+            <div class="anm"><code>${esc(a.nome)}</code></div>
+            <div class="aobj">${esc(a.objetivo)}</div>
+            <dl>
+              <dt>Entradas</dt><dd>${esc(a.entradas)}</dd>
+              <dt>Saídas</dt><dd>${esc(a.saidas)}</dd>
+              <dt>Regras</dt><dd>${esc(a.regras)}</dd>
+              <dt>Efeitos</dt><dd>${esc(a.efeitos)}</dd>
+              <dt>Pré-cond.</dt><dd>${esc(a.precondicoes)}</dd>
+            </dl>
+          </div>`).join('')}</div>
       </div>`).join('');
+    const tb=document.getElementById('toggle-all');
+    if(tb) tb.onclick=()=>{ const open=tb.textContent.startsWith('expandir');
+      body.querySelectorAll('.acts').forEach(a=>open?a.removeAttribute('hidden'):a.setAttribute('hidden',''));
+      body.querySelectorAll('.caret').forEach(c=>c.textContent=open?'▾':'▸');
+      tb.textContent=open?'fechar todas':'expandir todas'; };
   }
   document.getElementById('panel').classList.add('open');
   document.getElementById('panel-body').scrollTop=0;
@@ -252,6 +273,13 @@ document.getElementById('btn-tree').onclick=()=>show('tree');
 document.getElementById('btn-bars').onclick=()=>show('bars');
 document.getElementById('chart').addEventListener('click',e=>{const el=e.target.closest('[data-mod]');if(el)openPanel(el.getAttribute('data-mod'));});
 document.getElementById('bars').addEventListener('click',e=>{const el=e.target.closest('[data-mod]');if(el)openPanel(el.getAttribute('data-mod'));});
+document.getElementById('panel-body').addEventListener('click',e=>{
+  const h=e.target.closest('.fn'); if(!h) return;
+  const card=h.closest('.pcard'), acts=card.querySelector('.acts'), car=h.querySelector('.caret');
+  const open=acts.hasAttribute('hidden');
+  if(open){acts.removeAttribute('hidden'); if(car)car.textContent='▾';}
+  else{acts.setAttribute('hidden',''); if(car)car.textContent='▸';}
+});
 document.addEventListener('keydown',e=>{if(e.key==='Escape')closePanel();});
 let rt; window.addEventListener('resize',()=>{clearTimeout(rt);rt=setTimeout(()=>{if(document.getElementById('chart').style.display!=='none')drawTreemap();},150);});
 drawBars(); drawTreemap();

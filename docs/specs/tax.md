@@ -1,162 +1,256 @@
 # Impostos — `erpclaw-tax`
 
-> Specs funcionais (enxutas) por funcionalidade. Geradas do código: `scripts/erpclaw-tax/db_query.py`. 10 funcionalidades · 18 ações.
+> Spec funcional por ação. Gerada de `scripts/erpclaw-tax/db_query.py`. 9 funcionalidades · 18 ações.
 
 ## Modelos
 
-**Objetivo.** Gerencia modelos de imposto (tax_template) com suas linhas de cálculo (tax_template_line), que definem contas, alíquotas e tipo de incidência para vendas, compras ou ambos.
+**Objetivo.** Gerenciar modelos de imposto (tax_template) e suas linhas de alíquota (CRUD completo).
 
-**Ações:**
-- `add-tax-template` — Cria um modelo de imposto com uma ou mais linhas (conta, alíquota, charge_type, add_deduct).
-- `update-tax-template` — Atualiza nome, flag padrão e/ou substitui integralmente as linhas do modelo.
-- `get-tax-template` — Retorna o modelo e suas linhas (com nome da conta), ordenadas por row_order.
-- `list-tax-templates` — Lista modelos da empresa com paginação, filtrando opcionalmente por tax_type (inclui 'both').
-- `delete-tax-template` — Exclui o modelo e suas linhas se nao houver referencias.
+### `add-tax-template`
 
-| Campo | Detalhe |
+Cria um modelo de imposto com suas linhas de alíquota para uma empresa.
+
+| | |
 |---|---|
-| **Entradas** | --name, --tax-type (sales\|purchase\|both), --company-id, --lines (array JSON: tax_account_id, rate, charge_type, add_deduct, row_order, included_in_print_rate, description), --is-default, --tax-template-id, --limit, --offset. |
-| **Saídas** | Em criar/atualizar: status e tax_template_id (e line_count/updated_fields). get retorna o cabecalho mais a lista de lines com account_name. list retorna templates, total_count, limit, offset, has_more. |
-| **Regras de negócio** | --name, --tax-type valido e --company-id obrigatorios; --lines obrigatorio e nao vazio. Cada linha valida rate (decimal), charge_type em (actual, on_net_total, on_previous_row_amount, on_previous_row_total, on_item_quantity) e add_deduct em (add, deduct). Empresa e todas as tax_account_id devem existir. is_default zera os demais defaults do mesmo tax_type (e 'both') da empresa. update substitui linhas apagando e reinserindo. delete bloqueia se referenciado por tax_rule ou item_tax_template. |
-| **Efeitos colaterais** | Escreve em tax_template e tax_template_line (insert/update/delete). Grava trilha de auditoria via audit() para cada acao. Faz conn.commit(). Nenhuma postagem em GL, SLE de estoque ou payment_ledger_entry. |
-| **Pré-condições** | Empresa (company) existente; contas (account) das linhas previamente cadastradas. Tabelas requeridas: company, account, party_type_registry. |
+| **Entradas** | --name (obrigatório); --tax-type (obrigatório: sales\|purchase\|both); --company-id (obrigatório); --lines JSON array (obrigatório, cada linha exige tax_account_id e rate; opcionais charge_type [def on_net_total], add_deduct [def add], row_order [def índice], included_in_print_rate, description); --is-default (flag, default None). |
+| **Saídas** | status='created', tax_template_id, name, line_count. |
+| **Regras** | Valida tax_type contra VALID_TAX_TYPES; verifica que a empresa existe; valida cada linha (rate decimal, charge_type em VALID_CHARGE_TYPES, add_deduct em add/deduct) e que cada tax_account_id existe; se --is-default, zera is_default de outros templates do mesmo company com tax_type igual ou 'both'. Sem ciclo submit/cancel. |
+| **Efeitos colaterais** | INSERT em tax_template e tax_template_line; possível UPDATE is_default=0 em tax_template; grava audit_log via audit(); commit. |
+| **Pré-condições** | Empresa existente e contas (account) das linhas existentes. |
+
+### `update-tax-template`
+
+Atualiza nome, flag de padrão e/ou substitui as linhas de um modelo existente.
+
+| | |
+|---|---|
+| **Entradas** | --tax-template-id (obrigatório); --name (opcional); --is-default (flag, default None); --lines JSON array (opcional; substitui todas as linhas). |
+| **Saídas** | status='updated', tax_template_id, updated_fields (lista). |
+| **Regras** | Erro se template não existe; se is_default=true zera is_default dos demais templates do mesmo company/tax_type(ou both) exceto o próprio; se --lines informado, revalida linhas e contas, apaga linhas antigas e reinsere; erro 'No fields to update' se nada mudou; seta updated_at via dynamic_update. |
+| **Efeitos colaterais** | UPDATE em tax_template (campos + updated_at); possível UPDATE is_default=0 nos demais; DELETE+INSERT em tax_template_line se --lines; grava audit_log; commit. |
+| **Pré-condições** | Modelo existente; contas das novas linhas existentes. |
+
+### `get-tax-template`
+
+Retorna um modelo de imposto com suas linhas e nomes das contas.
+
+| | |
+|---|---|
+| **Entradas** | --tax-template-id (obrigatório). |
+| **Saídas** | Campos do tax_template (star) mais lines[] (linhas com account_name, ordenadas por row_order). |
+| **Regras** | Erro se template não encontrado. Somente leitura. |
+| **Efeitos colaterais** | nenhum (leitura). |
+| **Pré-condições** | Modelo existente. |
+
+### `list-tax-templates`
+
+Lista modelos de imposto de uma empresa com paginação.
+
+| | |
+|---|---|
+| **Entradas** | --company-id ou --company (nome) resolvidos por resolve_company_id; --tax-type (opcional, filtra por tax_type igual ou 'both'); --limit (def 20); --offset (def 0). |
+| **Saídas** | templates[], total_count, limit, offset, has_more. |
+| **Regras** | Resolve company; aplica filtro opcional de tax_type; ordena por name. Somente leitura. |
+| **Efeitos colaterais** | nenhum (leitura). |
+| **Pré-condições** | Empresa resolvível. |
+
+### `delete-tax-template`
+
+Exclui um modelo de imposto e suas linhas se não estiver referenciado.
+
+| | |
+|---|---|
+| **Entradas** | --tax-template-id (obrigatório). |
+| **Saídas** | deleted=True. |
+| **Regras** | Erro se não existe; erro se referenciado por tax_rule (cnt>0) ou por item_tax_template (cnt>0). Exclusão definitiva (sem cancelamento lógico). |
+| **Efeitos colaterais** | DELETE em tax_template_line e em tax_template; grava audit_log; commit. |
+| **Pré-condições** | Modelo existente e sem referências em tax_rule nem item_tax_template. |
 
 ## Categorias
 
-**Objetivo.** Mantem categorias de imposto (tax_category) usadas como criterio de classificacao e como filtro em regras de imposto.
+**Objetivo.** Gerenciar categorias de imposto (tax_category) usadas como filtro em regras.
 
-**Ações:**
-- `add-tax-category` — Cria uma categoria de imposto com nome e descricao opcional.
-- `list-tax-categories` — Lista todas as categorias de imposto com paginacao, ordenadas por nome.
+### `add-tax-category`
 
-| Campo | Detalhe |
+Cria uma categoria de imposto com nome e descrição opcional.
+
+| | |
 |---|---|
-| **Entradas** | --name (obrigatorio), --description (opcional), --limit, --offset. |
-| **Saídas** | add retorna status created e tax_category_id e name. list retorna categories, total_count, limit, offset, has_more. |
-| **Regras de negócio** | --name obrigatorio. Categoria nao tem vinculo de empresa (global). Sem ciclo de vida rascunho/submit. Sem validacao de unicidade explicita no codigo. |
-| **Efeitos colaterais** | Insere em tax_category e grava auditoria via audit(); faz commit. Nenhuma postagem em GL/estoque/pagamentos. |
-| **Pré-condições** | Banco inicializado com tabelas requeridas (company, account, party_type_registry). |
+| **Entradas** | --name (obrigatório); --description (opcional, default ''). |
+| **Saídas** | status='created', tax_category_id, name. |
+| **Regras** | Erro se --name ausente. Sem validações adicionais nem ciclo de status. |
+| **Efeitos colaterais** | INSERT em tax_category; grava audit_log; commit. |
+| **Pré-condições** | Nenhuma específica. |
+
+### `list-tax-categories`
+
+Lista todas as categorias de imposto com paginação.
+
+| | |
+|---|---|
+| **Entradas** | --limit (def 20); --offset (def 0). |
+| **Saídas** | categories[], total_count, limit, offset, has_more. |
+| **Regras** | Sem filtro por empresa (tax_category é global); ordena por name. Somente leitura. |
+| **Efeitos colaterais** | nenhum (leitura). |
+| **Pré-condições** | Nenhuma. |
 
 ## Regras
 
-**Objetivo.** Define regras de imposto (tax_rule) que associam um modelo a criterios (cliente, grupo, fornecedor, estado de entrega, categoria) e uma prioridade, para selecao automatica do modelo aplicavel.
+**Objetivo.** Gerenciar regras (tax_rule) que mapeiam filtros de parte/estado/categoria para um modelo de imposto.
 
-**Ações:**
-- `add-tax-rule` — Cria uma regra que aponta para um modelo, com tipo, prioridade e ao menos um filtro.
-- `list-tax-rules` — Lista regras da empresa com nome do modelo, ordenadas por prioridade e data, com paginacao.
+### `add-tax-rule`
 
-| Campo | Detalhe |
+Cria uma regra que associa filtros a um modelo de imposto com prioridade.
+
+| | |
 |---|---|
-| **Entradas** | --tax-template-id, --tax-type (sales\|purchase), --priority (int), e ao menos um filtro: --customer-id, --customer-group, --supplier-id, --shipping-state, --tax-category-id; --company-id/--company para listar; --limit, --offset. |
-| **Saídas** | add retorna status created e tax_rule_id. list retorna rules (com template_name), total_count, limit, offset, has_more. |
-| **Regras de negócio** | --tax-template-id, --tax-type (apenas sales ou purchase) e --priority obrigatorios. Pelo menos uma condicao de filtro e exigida. O modelo deve existir; company_id da regra herda o do modelo. supplier_group e gravado como None. Sem ciclo de vida rascunho/submit. |
-| **Efeitos colaterais** | Insere em tax_rule e grava auditoria; faz commit. Nenhuma postagem contabil, de estoque ou de pagamento. |
-| **Pré-condições** | Modelo de imposto (tax_template) existente; empresa resolvida para listagem; categorias/clientes/fornecedores referenciados conforme o filtro usado. |
+| **Entradas** | --tax-template-id (obrigatório); --tax-type (obrigatório: sales\|purchase); --priority int (obrigatório); ao menos um filtro: --customer-id, --customer-group, --supplier-id, --shipping-state ou --tax-category-id. |
+| **Saídas** | status='created', tax_rule_id. |
+| **Regras** | Erro se tax_type não for sales/purchase; erro se priority ausente; erro se template não existe; erro se nenhum filtro informado. supplier_group é gravado como None; company_id herdado do template. |
+| **Efeitos colaterais** | INSERT em tax_rule; grava audit_log; commit. |
+| **Pré-condições** | Modelo de imposto existente. |
 
-## Resolucao
+### `list-tax-rules`
 
-**Objetivo.** Seleciona automaticamente o modelo de imposto aplicavel para um parceiro e transacao, avaliando as regras por prioridade e caindo no modelo padrao da empresa quando nenhuma casa.
+Lista as regras de imposto de uma empresa com o nome do modelo associado.
 
-**Ações:**
-- `resolve-tax-template` — Resolve o melhor tax_template para party/transacao, avalia isencao e lista overrides por item.
-
-| Campo | Detalhe |
+| | |
 |---|---|
-| **Entradas** | --party-type (deve estar no party_type_registry), --party-id, --company-id/--company; opcionais --transaction-type (sales\|purchase), --tax-category-id, --shipping-address (JSON com state). |
-| **Saídas** | tax_template_id, template_name, is_exempt (bool) e item_overrides (itens cujo tax_template_id difere do resolvido). |
-| **Regras de negócio** | party-type deve estar registrado; party-id obrigatorio. tx_type vem de --transaction-type ou inferido (customer=sales, supplier=purchase, generico=sales). Regras filtradas por empresa e tipo (inclui 'both'), avaliadas em ordem de prioridade asc; primeira correspondencia em customer_id/customer_group/supplier_id/shipping_state/tax_category_id vence. Sem match, usa template is_default da empresa do tipo. Cliente com exempt_from_sales_tax marca is_exempt=True. |
-| **Efeitos colaterais** | Nenhum (somente leitura) — apenas SELECTs; nao escreve em nenhuma tabela nem em GL. |
-| **Pré-condições** | party_type_registry populado; cliente/fornecedor existente; regras e/ou modelo padrao cadastrados na empresa; item_tax_template para overrides. |
+| **Entradas** | --company-id ou --company (nome); --limit (def 20); --offset (def 0). |
+| **Saídas** | rules[] (campos da regra + template_name), total_count, limit, offset, has_more. |
+| **Regras** | Resolve company; ordena por priority e depois created_at. Somente leitura. |
+| **Efeitos colaterais** | nenhum (leitura). |
+| **Pré-condições** | Empresa resolvível. |
 
-## Calculo
+## Resolução
 
-**Objetivo.** Calcula impostos de uma lista de itens contra um modelo, aplicando linhas em cascata e distribuindo o imposto proporcionalmente por item.
+**Objetivo.** Selecionar automaticamente o modelo de imposto aplicável a uma parte/transação avaliando as regras por prioridade.
 
-**Ações:**
-- `calculate-tax` — Calcula imposto por linha (cascata) e por item, retornando totais; calculo puro sem gravacao.
+### `resolve-tax-template`
 
-| Campo | Detalhe |
+Determina o modelo de imposto para uma parte casando regras na ordem de prioridade, com fallback no padrão da empresa.
+
+| | |
 |---|---|
-| **Entradas** | --tax-template-id, --items (array JSON: item_id, net_amount, qty), opcional --item-overrides (item_id, override_template_id). |
-| **Saídas** | tax_lines (conta, nome, descricao, rate, amount), total_tax, net_total, grand_total e per_item_tax (item_id, tax_amount). |
-| **Regras de negócio** | tax-template-id e --items obrigatorios; modelo deve ter linhas. Base por charge_type: on_net_total=net_total; on_previous_row_total=total da linha anterior (ou net); on_previous_row_amount=valor da linha anterior; actual=rate vira valor fixo; on_item_quantity=soma das qty. add_deduct=deduct inverte sinal. Itens em override_map nao recebem rateio. Arredondamento via round_currency. |
-| **Efeitos colaterais** | Nenhum (somente leitura) — calculo puro, declarado 'no database writes'; nenhuma postagem em GL, SLE ou pagamentos. |
-| **Pré-condições** | Modelo de imposto com linhas (tax_template_line) existente; contas das linhas cadastradas. |
+| **Entradas** | --party-type (obrigatório, deve estar em party_type_registry); --party-id (obrigatório); --company-id ou --company; --transaction-type (opcional; default sales p/ customer, purchase p/ supplier, senão sales); --tax-category-id (opcional); --shipping-address JSON (opcional, usa campo state). |
+| **Saídas** | tax_template_id, template_name, is_exempt, item_overrides[]. |
+| **Regras** | Valida party_type contra registro; para customer marca is_exempt se exempt_from_sales_tax; itera regras (tax_type igual ou template 'both') por priority asc casando customer_id, customer_group, supplier_id, shipping_state e tax_category_id; primeira regra casada vence; sem match cai no template is_default da empresa; coleta item_tax_template cujo template difere do escolhido. Somente leitura. |
+| **Efeitos colaterais** | nenhum (leitura). |
+| **Pré-condições** | party_type registrado em party_type_registry; empresa resolvível; regras/template padrão cadastrados para haver resultado. |
+
+## Cálculo
+
+**Objetivo.** Calcular impostos sobre itens a partir das linhas de um modelo, sem persistência.
+
+### `calculate-tax`
+
+Calcula impostos em cascata por linha do modelo e distribui proporcionalmente por item.
+
+| | |
+|---|---|
+| **Entradas** | --tax-template-id (obrigatório); --items JSON array (obrigatório; cada item com item_id, net_amount, opcional qty); --item-overrides JSON (opcional; item_id->override_template_id, itens sobrepostos não recebem rateio). |
+| **Saídas** | tax_lines[] (tax_account_id, account_name, description, rate, amount), total_tax, net_total, grand_total, per_item_tax[]. |
+| **Regras** | Erro se sem template ou sem linhas; soma net_total; por linha aplica base conforme charge_type (on_net_total, on_previous_row_total, on_previous_row_amount, actual [rate vira valor], on_item_quantity [soma qty]); 'actual' usa valor direto, demais base*rate/100; add_deduct=deduct nega o valor; rateio proporcional ao net_amount do item; arredonda via round_currency. Cálculo puro. |
+| **Efeitos colaterais** | nenhum (leitura). |
+| **Pré-condições** | Modelo com linhas (tax_template_line) cadastradas. |
 
 ## Impostos por Item
 
-**Objetivo.** Associa um item a um modelo de imposto especifico (item_tax_template), permitindo sobrescrever a tributacao padrao para aquele item.
+**Objetivo.** Definir sobreposições de modelo de imposto por item (item_tax_template).
 
-**Ações:**
-- `add-item-tax-template` — Vincula um item a um tax_template com alíquota opcional, criando o override por item.
+### `add-item-tax-template`
 
-| Campo | Detalhe |
+Associa um item a um modelo de imposto (override por item) com alíquota opcional.
+
+| | |
 |---|---|
-| **Entradas** | --item-id, --tax-template-id (obrigatorios), --tax-rate (opcional). |
-| **Saídas** | status created e item_tax_template_id. |
-| **Regras de negócio** | item-id e tax-template-id obrigatorios; o tax_template referenciado deve existir. Nao valida existencia do item nem unicidade do par item/modelo. Sem ciclo de vida rascunho/submit. |
-| **Efeitos colaterais** | Insere em item_tax_template e grava auditoria; faz commit. Nenhuma postagem contabil, de estoque ou de pagamento. |
-| **Pré-condições** | Modelo de imposto (tax_template) existente; item previamente cadastrado (nao verificado pelo codigo). |
+| **Entradas** | --item-id (obrigatório); --tax-template-id (obrigatório); --tax-rate (opcional). |
+| **Saídas** | status='created', item_tax_template_id. |
+| **Regras** | Erro se item-id ou tax-template-id ausentes; erro se template não existe. Sem verificação de existência do item nem ciclo de status. |
+| **Efeitos colaterais** | INSERT em item_tax_template; grava audit_log; commit. |
+| **Pré-condições** | Modelo de imposto existente. |
 
-## Retencao na Fonte
+## Retenção na Fonte
 
-**Objetivo.** Registra lancamentos de retencao na fonte (tax_withholding_entry) para um fornecedor, vinculando-os ao voucher de origem e ao ano fiscal.
+**Objetivo.** Configurar categorias de retenção e registrar entradas de imposto retido (tax_withholding_category/group/entry).
 
-**Ações:**
-- `record-withholding-entry` — Cria um lancamento de retencao com o valor retido para o fornecedor, voucher e ano fiscal.
+### `add-tax-withholding-category`
 
-| Campo | Detalhe |
+Cria uma categoria de retenção (e um grupo padrão com a alíquota) vinculada ao tipo de formulário.
+
+| | |
 |---|---|
-| **Entradas** | --supplier-id, --voucher-type, --voucher-id, --withholding-amount, --tax-year (todos obrigatorios). |
-| **Saídas** | status created e withholding_entry_id. |
-| **Regras de negócio** | Todos os campos obrigatorios. voucher_type e normalizado para snake_case via canonical_voucher_type (FINDING-006). Fornecedor deve existir e ter tax_withholding_category_id atribuido. Grava withheld_amount=valor, taxable_amount=0, e armazena withholding_voucher_type/withholding_voucher_id. |
-| **Efeitos colaterais** | Insere em tax_withholding_entry (somente do lado withholding) e grava auditoria; faz commit. Nao posta em GL/gl_entry nem em payment_ledger_entry; nao altera status de documento. |
-| **Pré-condições** | Fornecedor (supplier) existente com tax_withholding_category_id definido; categoria de retencao cadastrada. |
+| **Entradas** | --name (obrigatório); --rate (obrigatório, decimal); --threshold-amount (obrigatório, decimal); --form-type (obrigatório: 1099-NEC\|1099-MISC); --company-id (obrigatório). |
+| **Saídas** | status='created', category_id, name. |
+| **Regras** | Valida form-type em VALID_FORM_TYPES; valida rate e threshold como decimais; grava form_type em category_code e threshold em cumulative_threshold; busca primeira conta tax/payable da empresa para o grupo (group 'Default', effective_from 2020-01-01); grupo só é criado se houver conta de retenção. |
+| **Efeitos colaterais** | INSERT em tax_withholding_category e (condicional) tax_withholding_group; grava audit_log; commit. |
+| **Pré-condições** | Empresa existente; idealmente uma conta com account_type tax/payable para criar o grupo. |
 
-## Retencao de Fornecedores
+### `get-withholding-details`
 
-**Objetivo.** Cadastra categorias de retencao (tax_withholding_category) com alíquota e limiar, e consulta a situacao de retencao/1099 de um fornecedor em um ano fiscal.
+Agrega informação de retenção de um fornecedor em um ano fiscal (YTD, limite, backup withholding).
 
-**Ações:**
-- `add-tax-withholding-category` — Cria categoria de retencao com limiar e tipo de formulario, e um grupo padrao com a alíquota.
-- `get-withholding-details` — Agrega situacao de retencao do fornecedor no ano: pagamentos YTD, limiar, alíquota e backup withholding.
-
-| Campo | Detalhe |
+| | |
 |---|---|
-| **Entradas** | Para criar: --name, --rate, --threshold-amount, --form-type (1099-NEC\|1099-MISC), --company-id. Para consultar: --supplier-id, --tax-year, --company-id/--company. |
-| **Saídas** | add retorna status created, category_id, name. get retorna is_1099_vendor, withholding_category, ytd_payments, threshold_exceeded, withholding_rate, backup_withholding_rate, w9_on_file, withholding_amount. |
-| **Regras de negócio** | Criar: name, rate, threshold-amount, form-type valido e company-id obrigatorios; rate/threshold validados como decimal; form_type gravado em category_code e threshold em cumulative_threshold; cria grupo 'Default' com a alíquota e effective_from=2020-01-01 usando a primeira conta de tipo tax/payable da empresa. Consultar: soma taxable_amount YTD do twe; threshold_exceeded = ytd>=threshold; backup withholding de 24% aplicado quando is_1099_vendor e sem W9 em arquivo. |
-| **Efeitos colaterais** | add insere em tax_withholding_category e (se houver conta) em tax_withholding_group, grava auditoria e faz commit. get e somente leitura (apenas SELECTs/agregacao). Nenhuma postagem em GL ou pagamentos. |
-| **Pré-condições** | Empresa existente; para o grupo padrao deve haver conta com account_type tax ou payable na empresa; fornecedor existente para a consulta; lancamentos em tax_withholding_entry para haver YTD. |
+| **Entradas** | --supplier-id (obrigatório); --tax-year (obrigatório); --company-id ou --company. |
+| **Saídas** | is_1099_vendor, withholding_category, ytd_payments, threshold_exceeded, withholding_rate, backup_withholding_rate, w9_on_file, withholding_amount. |
+| **Regras** | Erro se fornecedor não existe; lê categoria do fornecedor e a alíquota do grupo mais recente (effective_from desc); soma taxable_amount em tax_withholding_entry no ano; threshold_exceeded se ytd>=cumulative_threshold; backup rate=24% se 1099 e sem W9, aplicado sobre o YTD. Somente leitura. |
+| **Efeitos colaterais** | nenhum (leitura). |
+| **Pré-condições** | Fornecedor existente; empresa resolvível. |
 
-## Relatorios 1099
+### `record-withholding-entry`
 
-**Objetivo.** Registra pagamentos tributaveis 1099 e gera os dados consolidados de 1099 por fornecedor/categoria para o ano fiscal, aplicando o limiar de reporte.
+Registra uma entrada de imposto retido (withheld_amount) de um fornecedor para um voucher.
 
-**Ações:**
-- `record-1099-payment` — Registra um pagamento tributavel 1099 (taxable_amount) para o fornecedor e retorna o total YTD.
-- `generate-1099-data` — Gera a lista de vendors 1099 da empresa no ano, filtrando os que atingiram o limiar da categoria.
-
-| Campo | Detalhe |
+| | |
 |---|---|
-| **Entradas** | record: --supplier-id, --amount, --tax-year, --voucher-type, --voucher-id. generate: --tax-year, --company-id/--company. |
-| **Saídas** | record retorna status created e ytd_1099_total. generate retorna vendors (supplier_id, name, tin, total_paid, form_type, box_1). |
-| **Regras de negócio** | record: campos obrigatorios; voucher_type normalizado (canonical_voucher_type); fornecedor deve existir e ter categoria; grava taxable_amount=valor, withheld_amount=0, e taxable_voucher_type/id; recalcula YTD. generate: soma decimal_sum(taxable_amount) por party/categoria; descarta quem ficou abaixo do cumulative_threshold da categoria; form_type vem de category_code (default 1099-NEC); box_1 = total quando 1099-NEC, senao 0.00. |
-| **Efeitos colaterais** | record insere em tax_withholding_entry (lado taxable) e grava auditoria; faz commit. generate e somente leitura (agregacao). Nenhuma postagem em GL/gl_entry, SLE ou payment_ledger_entry; nao altera status de documento. |
-| **Pré-condições** | Fornecedor com tax_withholding_category_id atribuido; categorias de retencao da empresa cadastradas; lancamentos taxable em tax_withholding_entry para o ano. |
+| **Entradas** | --supplier-id (obrigatório); --voucher-type (obrigatório); --voucher-id (obrigatório); --withholding-amount (obrigatório); --tax-year (obrigatório). |
+| **Saídas** | status='created', withholding_entry_id. |
+| **Regras** | Normaliza voucher_type via canonical_voucher_type (FINDING-006); erro se fornecedor não existe; erro se fornecedor sem tax_withholding_category_id; grava taxable_amount=0 e withheld_amount=withholding-amount em withholding_voucher_type/id. |
+| **Efeitos colaterais** | INSERT em tax_withholding_entry; grava audit_log; commit. Não posta em gl_entry/PLE. |
+| **Pré-condições** | Fornecedor existente com categoria de retenção atribuída. |
+
+## Relatórios 1099
+
+**Objetivo.** Registrar pagamentos elegíveis a 1099 e gerar os dados consolidados de 1099 por fornecedor.
+
+### `record-1099-payment`
+
+Registra um pagamento tributável (taxable_amount) elegível a 1099 para um fornecedor e retorna o total YTD.
+
+| | |
+|---|---|
+| **Entradas** | --supplier-id (obrigatório); --amount (obrigatório, mapeado para ple_amount); --tax-year (obrigatório); --voucher-type (obrigatório); --voucher-id (obrigatório). |
+| **Saídas** | status='created', ytd_1099_total. |
+| **Regras** | Normaliza voucher_type via canonical_voucher_type; erro se fornecedor não existe; erro se sem tax_withholding_category_id; grava taxable_amount=amount e withheld_amount=0 em taxable_voucher_type/id; recalcula soma YTD de taxable_amount. |
+| **Efeitos colaterais** | INSERT em tax_withholding_entry; grava audit_log; commit. Não posta em gl_entry/PLE. |
+| **Pré-condições** | Fornecedor existente com categoria de retenção atribuída. |
+
+### `generate-1099-data`
+
+Gera a lista de fornecedores e valores para emissão de 1099 no ano fiscal, aplicando o limite por categoria.
+
+| | |
+|---|---|
+| **Entradas** | --tax-year (obrigatório); --company-id ou --company. |
+| **Saídas** | vendors[] (supplier_id, name, tin, total_paid, form_type, box_1). |
+| **Regras** | Soma taxable_amount por party_id/category das entries do ano cujas categorias pertencem à empresa; ignora fornecedores abaixo do cumulative_threshold da categoria; form_type vem de category_code (default 1099-NEC); box_1 = total se 1099-NEC senão 0.00. Somente leitura. |
+| **Efeitos colaterais** | nenhum (leitura). |
+| **Pré-condições** | Empresa resolvível; entradas em tax_withholding_entry para o ano. |
 
 ## Status
 
-**Objetivo.** Fornece um panorama do dominio de impostos da empresa: contagem de modelos, regras, categorias de retencao e fornecedores 1099 do ano corrente.
+**Objetivo.** Resumir contagens de configuração de imposto e fornecedores 1099 do ano corrente para a empresa.
 
-**Ações:**
-- `status` — Retorna contagens agregadas de modelos, regras, categorias de retencao e vendors 1099 YTD da empresa.
+### `status`
 
-| Campo | Detalhe |
+Retorna contagens de modelos, regras, categorias de retenção e fornecedores 1099 do ano atual.
+
+| | |
 |---|---|
-| **Entradas** | --company-id ou --company (resolve a empresa). |
-| **Saídas** | templates, rules, withholding_categories e ytd_1099_vendors (distintos no ano corrente). |
-| **Regras de negócio** | Empresa resolvida via resolve_company_id. Conta tax_template, tax_rule e tax_withholding_category por company_id; conta party_id distintos em tax_withholding_entry do ano corrente (UTC) cuja category pertence a empresa. |
-| **Efeitos colaterais** | Nenhum (somente leitura) — apenas COUNTs e agregacoes. |
-| **Pré-condições** | Empresa existente; tabelas de impostos/retencao presentes no banco. |
+| **Entradas** | --company-id ou --company (resolvidos por resolve_company_id). |
+| **Saídas** | templates, rules, withholding_categories, ytd_1099_vendors. |
+| **Regras** | Conta tax_template, tax_rule e tax_withholding_category da empresa; conta party_id distintos em tax_withholding_entry do ano UTC atual cujas categorias são da empresa. Somente leitura. |
+| **Efeitos colaterais** | nenhum (leitura). |
+| **Pré-condições** | Empresa resolvível. |
 

@@ -1,147 +1,232 @@
 # Pagamentos — `erpclaw-payments`
 
-> Specs funcionais (enxutas) por funcionalidade. Geradas do código: `scripts/erpclaw-payments/db_query.py`. 9 funcionalidades · 17 ações.
+> Spec funcional por ação. Gerada de `scripts/erpclaw-payments/db_query.py`. 9 funcionalidades · 16 ações.
 
 ## Cadastro
 
-**Objetivo.** Criar e editar lançamentos de pagamento (payment_entry) em rascunho — recebimentos, pagamentos e transferências internas — com suas alocações a faturas.
+**Objetivo.** Criar e editar lançamentos de pagamento (payment_entry) em rascunho, incluindo suas alocações iniciais.
 
-**Ações:**
-- `add-payment` — Cria um novo payment_entry em status 'draft', opcionalmente já com alocações.
-- `update-payment` — Edita valor pago, número de referência e/ou alocações de um pagamento ainda em rascunho.
+### `add-payment`
 
-| Campo | Detalhe |
+Cria um novo lançamento de pagamento em status draft (receive, pay ou internal_transfer).
+
+| | |
 |---|---|
-| **Entradas** | add: --company-id, --payment-type (receive\|pay\|internal_transfer), --posting-date, --party-type, --party-id, --paid-from-account, --paid-to-account, --paid-amount, --payment-currency (USD), --exchange-rate (1), --reference-number, --reference-date, --allocations (JSON). update: --payment-entry-id e os campos a alterar (--paid-amount, --reference-number, --allocations). |
-| **Saídas** | add: {status:'created', payment_entry_id, naming_series}. update: {status:'updated', payment_entry_id, updated_fields}. |
-| **Regras de negócio** | payment_type deve ser receive/pay/internal_transfer; party_type/party_id obrigatórios exceto em internal_transfer e o party_type deve estar registrado em party_type_registry. paid_amount > 0. received_amount = paid_amount * exchange_rate. Contas paid_from/paid_to validadas como não-grupo (grupo é auto-resolvido para único filho-folha ou gera erro). unallocated_amount inicia igual ao paid_amount e é recalculado quando há alocações. update só permitido em status 'draft'; em update --allocations substitui todas as alocações (delete + reinsert). |
-| **Efeitos colaterais** | Insere/atualiza linha em payment_entry e linhas em payment_allocation (recalculando unallocated_amount). Grava auditoria (audit) para add-payment e update-payment. NÃO posta GL nem PLE nesta fase (apenas no submit). Faz conn.commit(). |
-| **Pré-condições** | Empresa (company) existente; contas (account) paid_from e paid_to existentes e não-grupo; party_type registrado em party_type_registry; tabelas company e account presentes (REQUIRED_TABLES). |
+| **Entradas** | --company-id (obrigatório), --payment-type (obrigatório: receive\|pay\|internal_transfer), --posting-date (obrigatório), --party-type (obrigatório salvo internal_transfer; deve estar registrado em party_type_registry), --party-id (obrigatório salvo internal_transfer), --paid-from-account (obrigatório), --paid-to-account (obrigatório), --paid-amount (obrigatório, >0), --payment-currency (default USD), --exchange-rate (default 1), --reference-number, --reference-date, --allocations (JSON opcional). |
+| **Saídas** | status='created', payment_entry_id, naming_series. |
+| **Regras** | Valida company existente; valida que ambas as contas existem e não são group (auto-resolve para filha-folha única, senão erro); paid_amount convertido com round_currency e deve ser >0; received_amount = paid_amount*exchange_rate; --allocations malformado gera erro JSON. Cria sempre em status 'draft' com unallocated_amount = paid_amount (recalculado se houver alocações). |
+| **Efeitos colaterais** | Escreve em payment_entry (1 linha, status draft); insere linhas em payment_allocation se --allocations; recalcula unallocated_amount; grava audit_log (add-payment). Nenhuma postagem em gl_entry/PLE. conn.commit(). |
+| **Pré-condições** | Company, contas paid-from/paid-to e (se aplicável) party_type registrado e party devem existir. |
+
+### `update-payment`
+
+Atualiza campos editáveis (valor, número de referência, alocações) de um pagamento ainda em draft.
+
+| | |
+|---|---|
+| **Entradas** | --payment-entry-id (obrigatório); opcionais --paid-amount (>0), --reference-number, --allocations (JSON). |
+| **Saídas** | status='updated', payment_entry_id, updated_fields (lista dos campos alterados). |
+| **Regras** | Erro se pagamento não está em 'draft' (sugere cancelar primeiro). Se --paid-amount: recalcula received_amount = amount*exchange_rate existente. --allocations substitui (DELETE + reinsert) e recalcula unallocated. Erro 'No fields to update' se nada informado; JSON de alocações inválido gera erro. |
+| **Efeitos colaterais** | UPDATE em payment_entry (paid_amount/received_amount/reference_number); DELETE+INSERT em payment_allocation; recalcula unallocated_amount; grava audit_log (update-payment) com old/new values. conn.commit(). Nenhuma postagem em gl_entry/PLE. |
+| **Pré-condições** | Payment entry existente em status 'draft'. |
 
 ## Listagem
 
-**Objetivo.** Consultar pagamentos individualmente ou em lista filtrada/paginada, e localizar pagamentos com saldo não alocado por parte.
+**Objetivo.** Consultas de leitura de pagamentos: detalhe individual e listagem filtrada/paginada.
 
-**Ações:**
-- `get-payment` — Retorna um payment_entry completo com suas alocações.
-- `list-payments` — Lista paginada de pagamentos da empresa com filtros e nome da parte resolvido.
-- `get-unallocated-payments` — Lista pagamentos submitted de uma parte que ainda têm saldo não alocado (>0).
-- `list-open-advances` — Alias (vocabulário SAP-B1) de get-unallocated-payments; lista adiantamentos em aberto.
+### `get-payment`
 
-| Campo | Detalhe |
+Retorna um lançamento de pagamento completo com suas alocações.
+
+| | |
 |---|---|
-| **Entradas** | get: --payment-entry-id. list: --company-id/--company (nome), filtros --payment-type, --party-type, --party-id, --status, --from-date, --to-date, --limit (20), --offset (0). get-unallocated/list-open-advances: --party-type, --party-id, --company-id/--company. |
-| **Saídas** | get: objeto do pagamento + array allocations (id, voucher_type, voucher_id, allocated_amount, exchange_gain_loss). list: {payments[], total_count, limit, offset, has_more}, cada item com party_name resolvido. get-unallocated: {payments[]} com id, naming_series, paid_amount, unallocated_amount, posting_date. |
-| **Regras de negócio** | list ordena por posting_date desc e created_at desc; resolve party_name por subconsulta CASE em customer/supplier/employee. get-unallocated filtra status='submitted' e unallocated_amount (CAST NUMERIC) > 0, ordenado por posting_date. |
-| **Efeitos colaterais** | Nenhum (somente leitura). |
-| **Pré-condições** | Empresa resolvível (por id ou nome); tabela payment_entry presente. |
+| **Entradas** | --payment-entry-id (obrigatório). |
+| **Saídas** | id, naming_series, payment_type, posting_date, party_type, party_id, paid_from_account, paid_to_account, paid_amount, received_amount, payment_currency, exchange_rate, reference_number, reference_date, status, unallocated_amount, company_id, allocations[] (id, voucher_type, voucher_id, allocated_amount, exchange_gain_loss). |
+| **Regras** | Erro se payment_entry não encontrado (sugere 'list payments'). Alocações ordenadas por created_at depois id. |
+| **Efeitos colaterais** | nenhum (leitura). |
+| **Pré-condições** | Payment entry existente. |
+
+### `list-payments`
+
+Lista lançamentos de pagamento de uma empresa com filtros e paginação.
+
+| | |
+|---|---|
+| **Entradas** | --company-id ou --company (nome) para resolver empresa; filtros opcionais --payment-type, --party-type, --party-id, --status (pe_status), --from-date, --to-date; --limit (default 20), --offset (default 0). |
+| **Saídas** | payments[] (id, naming_series, payment_type, posting_date, party_type, party_id, paid_amount, status, unallocated_amount, party_name resolvido), total_count, limit, offset, has_more. |
+| **Regras** | company_id resolvido via resolve_company_id (id ou nome). party_name obtido por subconsulta CASE em customer/supplier/employee. Ordena por posting_date desc, created_at desc. |
+| **Efeitos colaterais** | nenhum (leitura). |
+| **Pré-condições** | Empresa identificável por id ou nome. |
 
 ## Ciclo de Vida
 
-**Objetivo.** Conduzir o pagamento pelo fluxo rascunho → submetido → cancelado, postando e revertendo a contabilidade, além de excluir rascunhos.
+**Objetivo.** Transições draft→submit→cancel e exclusão de rascunhos, com postagens e reversões contábeis.
 
-**Ações:**
-- `submit-payment` — Submete um draft: posta GL, cria PLE, aplica desconto por pagamento antecipado e limpa faturas alocadas.
-- `cancel-payment` — Cancela um pagamento submitted: reverte GL, reverte PLE e desfaz a baixa das faturas.
-- `delete-payment` — Exclui fisicamente um pagamento ainda em rascunho (com suas alocações e deduções).
+### `submit-payment`
 
-| Campo | Detalhe |
+Submete um pagamento draft: posta GL, cria PLE, aplica desconto por pagamento antecipado e liquida faturas alocadas.
+
+| | |
 |---|---|
-| **Entradas** | Todas usam --payment-entry-id. |
-| **Saídas** | submit: {status:'submitted', payment_entry_id, gl_entries_created, documents_cleared, outstanding_updated} (+ early_payment_discount e/ou exchange_gain_loss quando aplicável). cancel: {status:'cancelled', payment_entry_id, reversed:true}. delete: {status:'deleted', deleted:true}. |
-| **Regras de negócio** | submit exige status 'draft'; revalida contas não-grupo (auto-resolve folha). Monta GL conforme tipo: receive DR paid_to(banco)/CR paid_from(receber); pay DR paid_to(pagar)/CR paid_from(banco); internal_transfer DR/CR banco↔banco. Calcula desconto antecipado se a fatura tem payment_terms com discount_percentage/discount_days e o pagamento ocorre dentro da janela (reduz valor no banco, conta de desconto absorve). Guarda contra falso sucesso: se há alocações de fatura mas nenhuma é baixada, faz rollback e erro. Branch de FX (gain/loss) está dormente (regra: moeda da fatura = moeda do pagamento, rate=1). cancel exige status 'submitted'. delete só em 'draft'. |
-| **Efeitos colaterais** | submit: valida e insere gl_entry (insert_gl_entries via validate_gl_entries 12 passos), insere payment_ledger_entry de nível-parte (-paid_amount) e PLE por alocação (INV-22), aplica baixa em sales_invoice/purchase_invoice (apply_payment_to_document: outstanding/status), pode rotear porção de adiantamento a sub-conta (advance_account_id), muda status para 'submitted', auditoria. cancel: reverse_gl_entries, marca PLE como delinked e cria PLE de reversão, reverse_payment_on_document restaura outstanding/status das faturas, status 'cancelled', auditoria. delete: DELETE em payment_allocation, payment_deduction e payment_entry, auditoria. Todas fazem commit (rollback em falha). |
-| **Pré-condições** | Pagamento existente no status correto; contas válidas; para submit com alocações, faturas com moeda igual à do pagamento; conta de desconto ('Sales/Purchase Discounts') e cost center default existentes para aplicar desconto; sub-conta de adiantamento configurada na company para rotear advance. |
+| **Entradas** | --payment-entry-id (obrigatório). |
+| **Saídas** | status='submitted', payment_entry_id, gl_entries_created, documents_cleared, outstanding_updated (bool); opcional early_payment_discount{discount_amount,bank_amount,details}; opcional exchange_gain_loss. |
+| **Regras** | Erro se status != 'draft'. Re-valida contas não-group (auto-resolve+update). Exige currency da fatura == payment_currency (senão erro de mismatch). Calcula desconto antecipado via payment_terms (discount_percentage/discount_days) dentro da janela. Monta GL: receive DR paid_to/CR paid_from; pay DR paid_to/CR paid_from; internal_transfer banco-a-banco; com desconto adiciona leg na conta de desconto. Roteia porção de adiantamento (unallocated) para sub-conta de advance se configurada. Branch FX dormente (rate==1 garantido). Falha de GL ou de clearing faz rollback e erro; se nomeou alocações de fatura mas nenhuma liquidou, rollback e erro. |
+| **Efeitos colaterais** | INSERT em gl_entry (via insert_gl_entries, voucher_type=payment_entry); INSERT em payment_ledger_entry (PLE party-level -paid_amount) e PLE por-alocação (-allocated, INV-22); UPDATE payment_entry.status='submitted' e advance_account_id se roteado; UPDATE em sales_invoice/purchase_invoice (outstanding/status via apply_payment_to_document); possível UPDATE payment_allocation.exchange_gain_loss; audit_log (submit-payment). conn.commit(). |
+| **Pré-condições** | Payment entry em 'draft'; contas válidas; moeda da fatura igual à do pagamento. |
+
+### `cancel-payment`
+
+Cancela um pagamento submetido: reverte GL, desfaz liquidação das faturas e reverte PLE.
+
+| | |
+|---|---|
+| **Entradas** | --payment-entry-id (obrigatório). |
+| **Saídas** | status='cancelled', payment_entry_id, reversed=true. |
+| **Regras** | Erro se status != 'submitted'. Reverte GL via reverse_gl_entries (erro de reversão aborta). Para cada alocação de fatura, restaura outstanding/status via reverse_payment_on_document (lê grand_total). Seleciona todas as PLE não-delinked do pagamento (party-level + por-alocação) e cria linhas estornantes. |
+| **Efeitos colaterais** | INSERT de gl_entry de reversão; UPDATE payment_ledger_entry.delinked=1 nas linhas originais + INSERT de PLE estornantes (valor negado, preservando against_voucher); UPDATE em sales_invoice/purchase_invoice (outstanding/status); UPDATE payment_entry.status='cancelled'; audit_log (cancel-payment). conn.commit(). |
+| **Pré-condições** | Payment entry em 'submitted'. |
+
+### `delete-payment`
+
+Exclui fisicamente um pagamento que ainda está em draft.
+
+| | |
+|---|---|
+| **Entradas** | --payment-entry-id (obrigatório). |
+| **Saídas** | status='deleted', deleted=true. |
+| **Regras** | Erro se status != 'draft' (somente drafts; sugere cancelar primeiro). Remove dependências antes do registro principal. |
+| **Efeitos colaterais** | DELETE em payment_allocation, payment_deduction e payment_entry do registro; audit_log (delete-payment) com old_values. conn.commit(). Nenhuma postagem em gl_entry/PLE. |
+| **Pré-condições** | Payment entry existente em status 'draft'. |
 
 ## Alocação a Faturas
 
-**Objetivo.** Vincular o saldo não alocado de um pagamento já submetido a uma fatura específica, baixando o documento e registrando a baixa no razão de pagamentos.
+**Objetivo.** Alocar um pagamento submetido a uma fatura específica, liquidando o documento e gerando PLE de offset.
 
-**Ações:**
-- `allocate-payment` — Aloca um valor de um pagamento submitted a um voucher (sales_invoice/purchase_invoice), limpando o documento.
+### `allocate-payment`
 
-| Campo | Detalhe |
+Aloca parte do valor não-alocado de um pagamento submetido a um voucher (fatura), liquidando-o.
+
+| | |
 |---|---|
-| **Entradas** | --payment-entry-id, --voucher-type (canonizado, ex.: 'Sales Invoice' → sales_invoice), --voucher-id, --allocated-amount. |
-| **Saídas** | {status:'created', allocation_id, document_cleared (bool), remaining_unallocated}. |
-| **Regras de negócio** | Pagamento deve estar 'submitted'. allocated_amount > 0 e não pode exceder o unallocated_amount atual. Recalcula unallocated após inserir alocação. Para voucher de tipo fatura, deve efetivamente baixar o documento — caso contrário rollback e erro (guarda contra falso sucesso). Se o adiantamento foi roteado a sub-conta no submit (advance_account_id), aplica reclassificação GL: receive DR Advance-from-Customer/CR AR; pay DR AP/CR Advance-to-Supplier (entry_set próprio, GL imutável). |
-| **Efeitos colaterais** | Insere linha em payment_allocation, recalcula unallocated_amount, baixa a fatura (apply_payment_to_document: outstanding/status) e posta PLE por alocação (INV-22). Quando há advance_account_id, valida e insere gl_entry de reclassificação. Auditoria. commit (rollback em falha). |
-| **Pré-condições** | Pagamento existente e 'submitted' com saldo não alocado suficiente; fatura-alvo existente e em estado que aceite baixa; para reclassificação, advance_account_id previamente gravado no submit. |
+| **Entradas** | --payment-entry-id (obrigatório), --voucher-type (obrigatório; canonicalizado), --voucher-id (obrigatório), --allocated-amount (obrigatório, >0). |
+| **Saídas** | status='created', allocation_id, document_cleared (bool), remaining_unallocated. |
+| **Regras** | Erro se pagamento != 'submitted'. amount deve ser >0 e <= unallocated_amount (senão erro de excesso). Insere alocação e recalcula unallocated. Se advance_account_id setado, posta GL de reclassificação (receive: DR advance/CR AR; pay: DR AP/CR advance). Liquida a fatura via _clear_invoice_allocation; voucher de tipo fatura que não liquida nada gera rollback+erro; tipos advance/on-account liquidam nada legitimamente. |
+| **Efeitos colaterais** | INSERT em payment_allocation; UPDATE payment_entry.unallocated_amount; possível INSERT em gl_entry (reclassificação de adiantamento, entry_set=advance_alloc_*); INSERT PLE por-alocação (INV-22) e UPDATE em sales_invoice/purchase_invoice via apply_payment_to_document; audit_log (allocate-payment). conn.commit(). |
+| **Pré-condições** | Payment entry em 'submitted' com unallocated suficiente; voucher/fatura existente. |
+
+### `apply-advance-to-invoice`
+
+Alias de vocabulário (SAP B1) para allocate-payment: aplica um adiantamento a uma fatura.
+
+| | |
+|---|---|
+| **Entradas** | Idêntico a allocate-payment: --payment-entry-id, --voucher-type, --voucher-id, --allocated-amount (todos obrigatórios). |
+| **Saídas** | Idêntico a allocate-payment: status='created', allocation_id, document_cleared, remaining_unallocated. |
+| **Regras** | Mapeia exatamente para a função allocate_payment (mesmas validações e ciclo); apenas o nome no dispatch difere. |
+| **Efeitos colaterais** | Idêntico a allocate-payment: payment_allocation, payment_entry, gl_entry (reclass de adiantamento), PLE por-alocação, sales_invoice/purchase_invoice, audit_log (allocate-payment). conn.commit(). |
+| **Pré-condições** | Mesmas de allocate-payment: pagamento 'submitted' com unallocated e fatura existente. |
 
 ## Adiantamentos
 
-**Objetivo.** Tratar a porção não alocada de um pagamento como adiantamento (advance) — listando os em aberto e aplicando-os a faturas com reclassificação contábil da sub-conta de adiantamento para a conta de controle AR/AP.
+**Objetivo.** Consultar pagamentos com saldo não-alocado (adiantamentos em aberto) por parceiro.
 
-**Ações:**
-- `list-open-advances` — Alias de get-unallocated-payments: lista adiantamentos (pagamentos com saldo) em aberto da parte.
-- `apply-advance-to-invoice` — Alias de allocate-payment: aplica um adiantamento a uma fatura, reclassificando a sub-conta de adiantamento para AR/AP.
+### `get-unallocated-payments`
 
-| Campo | Detalhe |
+Lista pagamentos submetidos de um parceiro que ainda têm valor não-alocado (>0).
+
+| | |
 |---|---|
-| **Entradas** | list-open-advances: --party-type, --party-id, --company-id/--company. apply-advance-to-invoice: --payment-entry-id, --voucher-type, --voucher-id, --allocated-amount. |
-| **Saídas** | list-open-advances: {payments[]} (mesma de get-unallocated-payments). apply-advance-to-invoice: {status:'created', allocation_id, document_cleared, remaining_unallocated} (mesma de allocate-payment). |
-| **Regras de negócio** | São aliases de vocabulário SAP-B1 com a MESMA semântica das ações originais. O roteamento de adiantamento só ocorre se a company tem advance_from_customer_account_id (receive) ou advance_to_supplier_account_id (pay) configurada; no submit a porção unallocated > 0 é movida para a sub-conta e advance_account_id é gravado. Na aplicação, reclassifica esse valor de volta para a conta de controle AR/AP. |
-| **Efeitos colaterais** | list-open-advances: nenhum (somente leitura). apply-advance-to-invoice: idêntico a allocate-payment — payment_allocation, recálculo de unallocated, baixa da fatura (apply_payment_to_document), PLE por alocação, gl_entry de reclassificação quando há advance_account_id, auditoria e commit. |
-| **Pré-condições** | Pagamento submetido com saldo (adiantamento) e, para roteamento/reclassificação, sub-contas de adiantamento configuradas na company; fatura-alvo existente. |
+| **Entradas** | --party-type (obrigatório), --party-id (obrigatório); --company-id ou --company para resolver empresa. |
+| **Saídas** | payments[] (id, naming_series, paid_amount, unallocated_amount, posting_date). |
+| **Regras** | Filtra status='submitted' e unallocated_amount numérico >0; ordena por posting_date. company_id resolvido por id/nome. |
+| **Efeitos colaterais** | nenhum (leitura). |
+| **Pré-condições** | Parceiro e empresa identificáveis. |
+
+### `list-open-advances`
+
+Alias de vocabulário (SAP B1) para get-unallocated-payments: lista adiantamentos em aberto.
+
+| | |
+|---|---|
+| **Entradas** | Idêntico a get-unallocated-payments: --party-type, --party-id (obrigatórios), --company-id/--company. |
+| **Saídas** | Idêntico a get-unallocated-payments: payments[] (id, naming_series, paid_amount, unallocated_amount, posting_date). |
+| **Regras** | Mapeia exatamente para get_unallocated_payments; apenas o nome no dispatch difere. |
+| **Efeitos colaterais** | nenhum (leitura). |
+| **Pré-condições** | Mesmas de get-unallocated-payments. |
 
 ## Razão de Pagamentos (PLE)
 
-**Objetivo.** Manter o payment_ledger_entry — subrazão que rastreia o outstanding por parte e por voucher — e consultar saldos em aberto. Usado em integração cross-skill por selling/buying na submissão de faturas.
+**Objetivo.** Manter e consultar o subledger payment_ledger_entry e os saldos em aberto por parceiro/voucher.
 
-**Ações:**
-- `create-payment-ledger-entry` — Cria uma linha de PLE; chamada cross-skill por selling/buying no submit da fatura (+grand_total).
-- `get-outstanding` — Agrega e retorna o saldo em aberto de uma parte a partir das linhas de PLE não delinkadas.
+### `create-payment-ledger-entry`
 
-| Campo | Detalhe |
+Cria uma linha de payment_ledger_entry, usada cross-skill por selling/buying na submissão de faturas.
+
+| | |
 |---|---|
-| **Entradas** | create-PLE: --voucher-type, --voucher-id, --party-type, --party-id, --amount, --posting-date, --account-id, --against-voucher-type, --against-voucher-id. get-outstanding: --party-type, --party-id, opcionais --voucher-type, --voucher-id. |
-| **Saídas** | create-PLE: {status:'created', ple_id}. get-outstanding: {outstanding (total), vouchers[]} com voucher_type, voucher_id, outstanding_amount, posting_date. |
-| **Regras de negócio** | party_type deve estar registrado em party_type_registry. voucher_type e against_voucher_type são canonizados na fronteira de escrita (label 'Sales Invoice' → sales_invoice) para o netting bater. amount arredondado a moeda; currency fixada em 'USD' na create. get-outstanding soma amount por (voucher_type, voucher_id) filtrando delinked=0, com HAVING sum != 0, ordenado por posting_date; aceita filtro por voucher (também canonizado). |
-| **Efeitos colaterais** | create-payment-ledger-entry: insere linha em payment_ledger_entry, auditoria e commit. get-outstanding: nenhum (somente leitura). |
-| **Pré-condições** | party_type registrado; conta (account-id) existente; para get-outstanding, existir PLE da parte. Tabela payment_ledger_entry presente. |
+| **Entradas** | --voucher-type (obrigatório; canonicalizado), --voucher-id (obrigatório), --party-type (obrigatório; registrado), --party-id (obrigatório), --amount (obrigatório), --posting-date (obrigatório), --account-id (obrigatório); opcionais --against-voucher-type (canonicalizado), --against-voucher-id. |
+| **Saídas** | status='created', ple_id. |
+| **Regras** | voucher_type e against_voucher_type canonicalizados para snake_case; party_type deve estar registrado; amount arredondado via round_currency; currency gravada como 'USD'. |
+| **Efeitos colaterais** | INSERT em payment_ledger_entry (1 linha); audit_log (create-payment-ledger-entry). conn.commit(). Nenhuma postagem em gl_entry. |
+| **Pré-condições** | Conta, party_type registrado e party válidos. |
+
+### `get-outstanding`
+
+Retorna saldos em aberto de um parceiro agregados por voucher a partir do PLE.
+
+| | |
+|---|---|
+| **Entradas** | --party-type (obrigatório), --party-id (obrigatório); filtros opcionais --voucher-type (canonicalizado), --voucher-id. |
+| **Saídas** | outstanding (total), vouchers[] (voucher_type, voucher_id, outstanding_amount, posting_date). |
+| **Regras** | Considera apenas PLE delinked=0; soma amount agrupado por voucher; descarta saldos líquidos zero (HAVING != 0); ordena por posting_date. voucher_type filtrado é canonicalizado. |
+| **Efeitos colaterais** | nenhum (leitura). |
+| **Pré-condições** | Parceiro existente; PLE registradas. |
 
 ## Conciliação
 
-**Objetivo.** Conciliar automaticamente pagamentos não alocados de uma parte contra suas faturas em aberto usando algoritmo FIFO.
+**Objetivo.** Conciliar automaticamente (FIFO) pagamentos não-alocados contra faturas em aberto de um parceiro.
 
-**Ações:**
-- `reconcile-payments` — Casa em FIFO pagamentos com saldo contra faturas em aberto (PLE), criando alocações e baixando documentos.
+### `reconcile-payments`
 
-| Campo | Detalhe |
+Concilia em FIFO os pagamentos submetidos não-alocados de um parceiro contra suas faturas em aberto.
+
+| | |
 |---|---|
-| **Entradas** | --party-type, --party-id, --company-id. |
-| **Saídas** | {matched[] (payment_id, voucher_id, allocated_amount), unmatched_payments, unmatched_invoices}. |
-| **Regras de negócio** | Busca pagamentos status='submitted' com unallocated>0 (FIFO por posting_date, created_at) e faturas em aberto via PLE (sum>0, somente sales_invoice/purchase_invoice, FIFO por MIN(posting_date)). Casa o menor entre saldo do pagamento e saldo da fatura, avançando índices. Como só casa faturas, toda alocação DEVE baixar um documento; um cleared=False faz rollback e erro (proteção contra drift de voucher_type). Recalcula unallocated de todos os pagamentos afetados ao final. |
-| **Efeitos colaterais** | Insere linhas em payment_allocation, baixa cada fatura casada (apply_payment_to_document: outstanding/status) e posta PLE por alocação (INV-22), recalcula unallocated_amount dos pagamentos. commit (rollback em falha). Não grava auditoria explícita. |
-| **Pré-condições** | Existirem pagamentos submetidos com saldo e faturas em aberto da mesma parte/empresa; PLE das faturas previamente criado (no submit das faturas). |
+| **Entradas** | --party-type (obrigatório), --party-id (obrigatório), --company-id (obrigatório). |
+| **Saídas** | matched[] (payment_id, voucher_id, allocated_amount), unmatched_payments (contagem), unmatched_invoices (contagem). |
+| **Regras** | Pagamentos: status='submitted' e unallocated>0, ordenados FIFO (posting_date, created_at). Faturas: PLE delinked=0 de sales_invoice/purchase_invoice com saldo>0, FIFO por MIN(posting_date). Casa o menor entre saldo do pagamento e da fatura; cada match deve liquidar documento (False gera rollback+erro). Liquidação inválida aborta com rollback. |
+| **Efeitos colaterais** | INSERT em payment_allocation por match; INSERT PLE por-alocação (INV-22) e UPDATE sales_invoice/purchase_invoice via _clear_invoice_allocation; UPDATE payment_entry.unallocated_amount de todos pagamentos afetados. conn.commit(). Não grava audit_log próprio. |
+| **Pré-condições** | Parceiro com pagamentos submetidos não-alocados e faturas em aberto na empresa. |
 
 ## Conciliação Bancária
 
-**Objetivo.** Comparar, em modo leitura, o saldo contábil (GL) de uma conta bancária com a movimentação de pagamentos em um período, sem alterar dados.
+**Objetivo.** Comparar, em modo leitura, o saldo contábil de uma conta bancária com os pagamentos do período.
 
-**Ações:**
-- `bank-reconciliation` — Calcula saldo GL da conta bancária no período e conta pagamentos que a tocam (paid_from/paid_to).
+### `bank-reconciliation`
 
-| Campo | Detalhe |
+Compara o saldo do razão (GL) de uma conta bancária com os pagamentos submetidos do período (somente leitura).
+
+| | |
 |---|---|
-| **Entradas** | --bank-account-id, --from-date, --to-date. |
-| **Saídas** | {bank_account (nome), from_date, to_date, gl_entries (contagem), gl_balance (débito - crédito), payment_entries (contagem)}. |
-| **Regras de negócio** | Conta bancária deve existir. gl_balance = soma(débito) - soma(crédito) sobre gl_entry da conta no período com is_cancelled=0. payment_entries conta payment_entry status='submitted' no período onde paid_from_account OU paid_to_account é a conta. |
-| **Efeitos colaterais** | Nenhum (somente leitura). |
-| **Pré-condições** | Conta (account) bancária existente; intervalo de datas informado; tabela gl_entry e payment_entry presentes. |
+| **Entradas** | --bank-account-id (obrigatório), --from-date (obrigatório), --to-date (obrigatório). |
+| **Saídas** | bank_account (nome), from_date, to_date, gl_entries (contagem), gl_balance (debit-credit), payment_entries (contagem). |
+| **Regras** | Erro se conta bancária não encontrada. gl_balance = soma(debit)-soma(credit) de gl_entry não cancelado no período; conta pagamentos submetidos que tocam a conta como paid_from ou paid_to no período. |
+| **Efeitos colaterais** | nenhum (leitura). |
+| **Pré-condições** | Conta bancária existente; gl_entry e payment_entry no período. |
 
 ## Status
 
-**Objetivo.** Apresentar um resumo de contagens de pagamentos por status e totais recebidos/pagos da empresa.
+**Objetivo.** Resumir contagens por status e totais recebidos/pagos dos pagamentos de uma empresa.
 
-**Ações:**
-- `status` — Conta pagamentos por status e soma paid_amount dos submitted por tipo (received/paid).
+### `status`
 
-| Campo | Detalhe |
+Retorna contagens de pagamentos por status e totais recebidos/pagos (submetidos) da empresa.
+
+| | |
 |---|---|
-| **Entradas** | --company-id ou --company (nome). |
-| **Saídas** | {total, draft, submitted, cancelled, total_received, total_paid}. |
-| **Regras de negócio** | Agrupa payment_entry por status para contagens. Soma paid_amount apenas dos status='submitted' agrupado por payment_type: 'receive' → total_received, 'pay' → total_paid. Valores monetários arredondados. |
-| **Efeitos colaterais** | Nenhum (somente leitura). |
-| **Pré-condições** | Empresa resolvível (id ou nome); tabela payment_entry presente. |
+| **Entradas** | --company-id ou --company (nome) para resolver empresa. |
+| **Saídas** | total, draft, submitted, cancelled (contagens), total_received, total_paid. |
+| **Regras** | Agrupa contagens e soma paid_amount por status; total_received/total_paid somam paid_amount apenas de pagamentos 'submitted' por payment_type (receive/pay). company_id resolvido por id/nome. |
+| **Efeitos colaterais** | nenhum (leitura). |
+| **Pré-condições** | Empresa identificável por id ou nome. |
 
