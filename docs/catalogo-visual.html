@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ERPClaw — Catálogo por vertical (offline)</title>
+<style>
+  :root { --teal:#0d9488; --bg:#0b1220; --panel:#111a2e; --ink:#e6edf6; --muted:#8aa0b8; --line:#24344f; }
+  * { box-sizing: border-box; }
+  html,body { height:100%; }
+  body { margin:0; background:var(--bg); color:var(--ink);
+         font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; }
+  header { padding:16px 22px 4px; }
+  h1 { margin:0; font-size:19px; }
+  .sub { color:var(--muted); font-size:12.5px; margin-top:4px; max-width:900px; }
+  .bar { display:flex; gap:8px; align-items:center; padding:10px 22px; flex-wrap:wrap; }
+  button { background:var(--panel); color:var(--ink); border:1px solid var(--line);
+           padding:7px 14px; border-radius:8px; cursor:pointer; font-size:13px; }
+  button.active { background:var(--teal); border-color:var(--teal); color:#04231f; font-weight:600; }
+  .legend { display:flex; gap:14px; flex-wrap:wrap; margin-left:auto; font-size:12px; color:var(--muted); }
+  .legend span { display:inline-flex; align-items:center; gap:6px; }
+  .dot { width:11px; height:11px; border-radius:3px; display:inline-block; }
+  #stage { padding:0 22px; }
+  #chart { width:100%; height:78vh; background:var(--panel); border:1px solid var(--line); border-radius:10px; overflow:hidden; }
+  #bars { display:none; height:78vh; overflow:auto; background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:14px 18px; }
+  .cat-h { font-size:14px; font-weight:700; margin:16px 0 8px; display:flex; align-items:center; gap:8px; }
+  .cat-h:first-child { margin-top:2px; }
+  .row { display:grid; grid-template-columns:230px 1fr 56px; align-items:center; gap:10px; padding:2px 0; font-size:12.5px; }
+  .row.sub .nm { padding-left:18px; color:var(--muted); }
+  .nm { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .track { background:#0b1220; border-radius:5px; height:15px; overflow:hidden; }
+  .fill { height:100%; border-radius:5px; }
+  .val { text-align:right; color:var(--muted); font-variant-numeric:tabular-nums; }
+  footer { color:var(--muted); font-size:12px; padding:8px 22px 16px; }
+  code { color:var(--teal); }
+  text { font-family:inherit; }
+</style>
+</head>
+<body>
+<header>
+  <h1>ERPClaw — Catálogo de funcionalidades por vertical</h1>
+  <div class="sub">Área (treemap) / largura (barras) = nº de ações. 100% offline — sem CDN, SVG puro. Fork air-gapped: o <b>Núcleo</b> está no repo; <b>Verticais/Infra/Expansão/Regional</b> são catálogo (código não incluído).</div>
+</header>
+<div class="bar">
+  <button id="btn-tree" class="active">Treemap</button>
+  <button id="btn-bars">Barras por vertical</button>
+  <div class="legend">
+    <span><i class="dot" style="background:#0d9488"></i>Núcleo</span>
+    <span><i class="dot" style="background:#2563eb"></i>Verticais</span>
+    <span><i class="dot" style="background:#7c3aed"></i>Infraestrutura</span>
+    <span><i class="dot" style="background:#db2777"></i>Expansão</span>
+    <span><i class="dot" style="background:#ea580c"></i>Regional</span>
+  </div>
+</div>
+<div id="stage">
+  <div id="chart"></div>
+  <div id="bars"></div>
+</div>
+<footer>Fonte: <code>scripts/*/db_query.py</code> (núcleo, ~469 ações em 15 domínios) + <code>scripts/module_registry.json</code> (catálogo, 46 módulos / ~3.169 ações). Passe o mouse nos blocos para detalhes.</footer>
+
+<script>
+const C = { core:'#0d9488', vert:'#2563eb', infra:'#7c3aed', exp:'#db2777', reg:'#ea580c' };
+
+const data = [
+  { name:'Núcleo', color:C.core, children:[
+    {name:'setup', value:61}, {name:'selling', value:60}, {name:'accounting-adv', value:49},
+    {name:'buying', value:48}, {name:'inventory', value:45}, {name:'hr', value:39},
+    {name:'gl', value:31}, {name:'payroll', value:30}, {name:'reports', value:22},
+    {name:'billing', value:22}, {name:'tax', value:18}, {name:'journals', value:17},
+    {name:'payments', value:16}, {name:'os', value:7}, {name:'meta', value:4},
+  ]},
+  { name:'Verticais', color:C.vert, children:[
+    {name:'healthclaw', children:[
+      {name:'health-base', value:231}, {name:'mental', value:14}, {name:'dental', value:12},
+      {name:'homehealth', value:12}, {name:'vet', value:12},
+    ]},
+    {name:'educlaw', children:[
+      {name:'edu-base', value:177}, {name:'finaid', value:116}, {name:'statereport', value:99},
+      {name:'k12', value:77}, {name:'highered', value:62}, {name:'scheduling', value:58}, {name:'lms', value:26},
+    ]},
+    {name:'constructclaw', value:160},
+    {name:'propertyclaw', children:[ {name:'prop-base', value:103}, {name:'commercial', value:31} ]},
+    {name:'legalclaw', value:100}, {name:'retailclaw', value:88}, {name:'foodclaw', value:80},
+    {name:'hospitalityclaw', value:73}, {name:'automotiveclaw', value:70},
+    {name:'agricultureclaw', value:67}, {name:'nonprofitclaw', value:57},
+  ]},
+  { name:'Infraestrutura', color:C.infra, children:[
+    {name:'maintenance', value:39}, {name:'compliance', value:38}, {name:'treasury', value:35},
+    {name:'logistics', value:34}, {name:'planning', value:30}, {name:'pos', value:28},
+    {name:'documents', value:25}, {name:'selfservice', value:25}, {name:'alerts', value:21},
+    {name:'loans', value:20}, {name:'fleet', value:15}, {name:'approvals', value:13}, {name:'esign', value:13},
+  ]},
+  { name:'Expansão', color:C.exp, children:[
+    {name:'ops', value:135}, {name:'growth', value:110}, {name:'integrations', value:80},
+    {name:'integrations-stripe', value:67}, {name:'integrations-shopify', value:66}, {name:'os-engine', value:31},
+  ]},
+  { name:'Regional', color:C.reg, children:[
+    {name:'region-ca', value:30}, {name:'region-in', value:30}, {name:'region-uk', value:28}, {name:'region-eu', value:26},
+  ]},
+];
+
+// ---- helpers ----
+const val = n => n.children ? n.children.reduce((s,c)=>s+val(c),0) : n.value;
+const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+function hexToHsl(hex){
+  const n=parseInt(hex.slice(1),16), r=(n>>16&255)/255, g=(n>>8&255)/255, b=(n&255)/255;
+  const mx=Math.max(r,g,b), mn=Math.min(r,g,b); let h,s,l=(mx+mn)/2;
+  if(mx===mn){h=s=0;} else { const d=mx-mn; s=l>0.5? d/(2-mx-mn): d/(mx+mn);
+    h = mx===r? (g-b)/d+(g<b?6:0) : mx===g? (b-r)/d+2 : (r-g)/d+4; h/=6; }
+  return {h:h*360, s:s*100, l:l*100};
+}
+function leafFill(baseHex, t){ const c=hexToHsl(baseHex); const L=40+t*24; return `hsl(${c.h.toFixed(0)},${Math.min(70,c.s).toFixed(0)}%,${L.toFixed(0)}%)`; }
+const headerFill = baseHex => { const c=hexToHsl(baseHex); return `hsla(${c.h.toFixed(0)},${c.s.toFixed(0)}%,55%,0.14)`; };
+const txtColor = t => (40+t*24) < 56 ? '#f2f7fc' : '#08151f';
+function clip(s,w){ const max=Math.floor((w-10)/6.6); return s.length>max? (max>1? s.slice(0,max-1)+'…':'') : s; }
+
+// ---- squarified treemap ----
+function squarify(items, x, y, w, h){
+  const out=[]; let nodes=items.slice().sort((a,b)=>b._v-a._v);
+  let rx=x, ry=y, rw=w, rh=h, i=0;
+  const worst=(row,side)=>{ const sum=row.reduce((s,r)=>s+r._a,0); let mn=Infinity,mx=0;
+    for(const r of row){mn=Math.min(mn,r._a);mx=Math.max(mx,r._a);}
+    return Math.max(side*side*mx/(sum*sum), sum*sum/(side*side*mn)); };
+  while(i<nodes.length && rw>0.5 && rh>0.5){
+    const remVal=nodes.slice(i).reduce((s,n)=>s+n._v,0);
+    const scale=(rw*rh)/remVal, side=Math.min(rw,rh);
+    let row=[], j=i, prev=Infinity;
+    while(j<nodes.length){
+      const cand={node:nodes[j].node,_a:nodes[j]._v*scale};
+      const wr=worst(row.concat(cand),side);
+      if(row.length===0 || wr<=prev){ row.push(cand); prev=worst(row,side); j++; } else break;
+    }
+    const rowArea=row.reduce((s,r)=>s+r._a,0);
+    if(rw<=rh){ const rowH=rowArea/rw; let cx=rx;
+      for(const r of row){ const cw=r._a/rowArea*rw; out.push({node:r.node,x:cx,y:ry,w:cw,h:rowH}); cx+=cw; }
+      ry+=rowH; rh-=rowH;
+    } else { const rowW=rowArea/rh; let cy=ry;
+      for(const r of row){ const ch=r._a/rowArea*rh; out.push({node:r.node,x:rx,y:cy,w:rowW,h:ch}); cy+=ch; }
+      rx+=rowW; rw-=rowW;
+    }
+    i=j;
+  }
+  return out;
+}
+
+function renderNode(node,x,y,w,h,depth,baseHex,tint){
+  const total=val(node);
+  const canNest = node.children && depth<2 && w>58 && h>48;
+  if(canNest){
+    const hH = depth===0?22:18, gap=3;
+    let s=`<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="${headerFill(baseHex)}" stroke="#0b1220"/>`;
+    s+=`<text x="${x+6}" y="${y+hH-7}" font-size="${depth===0?13:11}" font-weight="600" fill="#cfe0f2">${esc(node.name)} · ${total}</text>`;
+    const kids=node.children.map(c=>({node:c,_v:val(c)}));
+    const laid=squarify(kids, x+gap, y+hH, w-2*gap, h-hH-gap);
+    const n=laid.length;
+    for(let k=0;k<n;k++){ const t=n>1?k/(n-1):0.5; s+=renderNode(laid[k].node,laid[k].x,laid[k].y,laid[k].w,laid[k].h,depth+1,baseHex,t); }
+    return s;
+  }
+  const fill=leafFill(baseHex,tint), tc=txtColor(tint);
+  let s=`<g><title>${esc(node.name)} — ${total} ações</title>`;
+  s+=`<rect x="${x}" y="${y}" width="${Math.max(0,w-1)}" height="${Math.max(0,h-1)}" rx="2" fill="${fill}" stroke="#0b1220"/>`;
+  if(w>44 && h>20){ s+=`<text x="${x+5}" y="${y+14}" font-size="11" font-weight="600" fill="${tc}">${esc(clip(node.name,w))}</text>`;
+    if(h>32) s+=`<text x="${x+5}" y="${y+27}" font-size="10" fill="${tc}" opacity="0.8">${total}</text>`; }
+  s+=`</g>`; return s;
+}
+
+function drawTreemap(){
+  const el=document.getElementById('chart'); const w=el.clientWidth, h=el.clientHeight;
+  if(w<10||h<10) return;
+  const cats=data.map(c=>({node:c,_v:val(c)}));
+  const laid=squarify(cats,0,0,w,h);
+  let body='';
+  for(const it of laid) body+=renderNode(it.node,it.x,it.y,it.w,it.h,0,it.node.color,0.5);
+  el.innerHTML=`<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" shape-rendering="crispEdges">${body}</svg>`;
+}
+
+function drawBars(){
+  let gmax=0; (function scan(ns){ns.forEach(n=>{ if(n.children) scan(n.children); else gmax=Math.max(gmax,n.value);});})(data);
+  let html='';
+  for(const cat of data){
+    html+=`<div class="cat-h"><i class="dot" style="background:${cat.color}"></i>${esc(cat.name)} · ${val(cat)} ações</div>`;
+    const mods=cat.children.slice().sort((a,b)=>val(b)-val(a));
+    for(const m of mods){
+      const v=val(m);
+      html+=`<div class="row"><div class="nm">${esc(m.name)}</div><div class="track"><div class="fill" style="width:${(v/gmax*100).toFixed(1)}%;background:${cat.color}"></div></div><div class="val">${v}</div></div>`;
+      if(m.children){ for(const sub of m.children.slice().sort((a,b)=>b.value-a.value)){
+        html+=`<div class="row sub"><div class="nm">${esc(sub.name)}</div><div class="track"><div class="fill" style="width:${(sub.value/gmax*100).toFixed(1)}%;background:${cat.color};opacity:.55"></div></div><div class="val">${sub.value}</div></div>`;
+      }}
+    }
+  }
+  document.getElementById('bars').innerHTML=html;
+}
+
+function show(view){
+  const tree=view==='tree';
+  document.getElementById('chart').style.display=tree?'block':'none';
+  document.getElementById('bars').style.display=tree?'none':'block';
+  document.getElementById('btn-tree').classList.toggle('active',tree);
+  document.getElementById('btn-bars').classList.toggle('active',!tree);
+  if(tree) drawTreemap(); else drawBars();
+}
+document.getElementById('btn-tree').onclick=()=>show('tree');
+document.getElementById('btn-bars').onclick=()=>show('bars');
+let rt; window.addEventListener('resize',()=>{ clearTimeout(rt); rt=setTimeout(()=>{ if(document.getElementById('chart').style.display!=='none') drawTreemap(); },150); });
+drawBars(); drawTreemap();
+</script>
+</body>
+</html>
