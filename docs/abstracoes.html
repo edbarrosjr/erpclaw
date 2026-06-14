@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ERPClaw — Abstrações (Camadas · Value Streams · Feature Model)</title>
+<style>
+  :root{ --bg:#0b1220; --panel:#111a2e; --ink:#e6edf6; --muted:#8aa0b8; --line:#24344f; --teal:#0d9488; }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;}
+  header{padding:16px 22px 4px;}
+  h1{margin:0;font-size:19px;}
+  .sub{color:var(--muted);font-size:12.5px;margin-top:4px;max-width:980px;}
+  .tabs{display:flex;gap:8px;padding:12px 22px;flex-wrap:wrap;}
+  .tabs button{background:var(--panel);color:var(--ink);border:1px solid var(--line);padding:8px 16px;border-radius:9px;cursor:pointer;font-size:13px;}
+  .tabs button.active{background:var(--teal);border-color:var(--teal);color:#04231f;font-weight:700;}
+  main{padding:0 22px 40px;}
+  section{display:none;} section.active{display:block;}
+  .lead{color:var(--muted);font-size:12.5px;margin:2px 0 14px;max-width:920px;}
+  /* camadas */
+  .layer{display:grid;grid-template-columns:210px 1fr;gap:0;border:1px solid var(--line);border-bottom:none;}
+  .layer:last-child{border-bottom:1px solid var(--line);}
+  .layer:first-child{border-radius:10px 10px 0 0;} .layer:last-child{border-radius:0 0 10px 10px;}
+  .lhead{padding:12px 14px;border-right:1px solid var(--line);background:#0e1729;}
+  .lhead .lid{font-weight:700;font-size:13px;} .lhead .ldesc{color:var(--muted);font-size:11px;margin-top:4px;line-height:1.4;}
+  .lbody{padding:12px;display:flex;flex-wrap:wrap;gap:7px;align-content:flex-start;}
+  .chip{display:inline-flex;align-items:center;gap:7px;border-radius:7px;padding:5px 9px;font-size:12px;border:1px solid;}
+  .chip .n{font-variant-numeric:tabular-nums;font-size:10.5px;background:rgba(0,0,0,.28);border-radius:9px;padding:0 6px;}
+  .dep{writing-mode:vertical-rl;transform:rotate(180deg);color:var(--muted);font-size:10.5px;letter-spacing:1px;}
+  /* streams */
+  .stream{border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-bottom:14px;background:var(--panel);}
+  .stream h3{margin:0 0 3px;font-size:14px;}
+  .stream p{margin:0 0 10px;color:var(--muted);font-size:11.5px;}
+  .flow{display:flex;align-items:stretch;gap:0;overflow-x:auto;padding-bottom:6px;}
+  .stage{min-width:165px;max-width:185px;border:1px solid var(--line);border-radius:9px;padding:9px 10px;background:#0b1220;display:flex;flex-direction:column;gap:5px;}
+  .stage .ord{font-size:10px;color:var(--muted);}
+  .stage .mod{font-size:10.5px;font-weight:700;color:#04231f;background:var(--teal);border-radius:5px;padding:1px 6px;align-self:flex-start;}
+  .stage .lbl{font-size:12px;color:var(--ink);}
+  .stage code{font-size:10.5px;color:#7fd6c9;word-break:break-all;}
+  .stage .fx{display:flex;flex-wrap:wrap;gap:3px;margin-top:auto;}
+  .fx b{font-size:9.5px;font-weight:700;border-radius:4px;padding:1px 5px;color:#fff;}
+  .arr{display:flex;align-items:center;color:var(--muted);padding:0 4px;font-size:16px;}
+  .legend{display:flex;gap:12px;flex-wrap:wrap;font-size:11px;color:var(--muted);margin:6px 0 0;}
+  .legend b{font-size:9.5px;border-radius:4px;padding:1px 5px;color:#fff;}
+  /* feature */
+  .fgroup{border:1px solid var(--line);border-radius:10px;margin-bottom:10px;background:var(--panel);overflow:hidden;}
+  .fghead{display:flex;align-items:center;gap:9px;padding:10px 13px;cursor:pointer;user-select:none;}
+  .fghead:hover{background:#0e1729;}
+  .fgname{font-weight:700;font-size:13.5px;}
+  .vbadge{font-size:9.5px;font-weight:700;border-radius:5px;padding:1px 7px;text-transform:uppercase;letter-spacing:.4px;}
+  .vb-mandatory{background:#0d9488;color:#04231f;} .vb-xor{background:#ea580c;color:#1a0a02;}
+  .vb-or{background:#2563eb;color:#02112e;} .vb-optional{background:#475569;color:#e6edf6;}
+  .fgbody{padding:6px 13px 12px;display:none;} .fgroup.open .fgbody{display:block;}
+  .fmod{padding:5px 0;border-top:1px dashed #1c2942;}
+  .fmod:first-child{border-top:none;}
+  .fmod .row{display:flex;align-items:center;gap:8px;font-size:12.5px;}
+  .fmod .n{font-variant-numeric:tabular-nums;font-size:10.5px;color:var(--muted);background:#0b1220;border:1px solid var(--line);border-radius:9px;padding:0 6px;}
+  .filhos{display:flex;flex-wrap:wrap;gap:5px;margin:5px 0 2px 14px;}
+  .filhos span{font-size:11px;color:#bcd;background:#0b1220;border:1px solid var(--line);border-radius:6px;padding:2px 7px;}
+  .constraints{border:1px solid var(--line);border-radius:10px;padding:12px 14px;background:var(--panel);margin-top:6px;}
+  .constraints h4{margin:0 0 8px;font-size:13px;}
+  .ctab{display:grid;grid-template-columns:auto auto 1fr;gap:3px 10px;font-size:11.5px;align-items:baseline;}
+  .ctab .req{color:#7fd6c9;} .ctab .exc{color:#fca5a5;}
+  .ctab code{color:#cfe0f2;}
+  .muted{color:var(--muted);font-size:11.5px;}
+  code{font-family:ui-monospace,Menlo,monospace;}
+</style>
+</head>
+<body>
+<header>
+  <h1>ERPClaw — Abstrações do catálogo</h1>
+  <div class="sub">Três lentes além do treemap, aterradas no <code>requires</code> real e nas specs. <b>Camadas</b> = o que se apoia em quê (alicerce embaixo) · <b>Value Streams</b> = o que cruza domínios · <b>Feature Model</b> = o que pode ser combinado. 100% offline.</div>
+</header>
+<div class="tabs">
+  <button id="t-camadas" class="active" onclick="tab('camadas')">▤ Camadas (alicerce)</button>
+  <button id="t-streams" onclick="tab('streams')">⇄ Value Streams</button>
+  <button id="t-feature" onclick="tab('feature')">⌥ Feature Model</button>
+</div>
+<main>
+  <section id="s-camadas" class="active">
+    <div class="lead">Pilha de dependência L0→L5: cada camada superior depende das de baixo; as setas de <code>requires</code> apontam só para baixo. O <b>alicerce</b> (L0/L1) sustenta tudo; verticais (L4) e sub-verticais (L5) ficam no topo. Largura/número = ações.</div>
+    <div id="camadas"></div>
+  </section>
+  <section id="s-streams">
+    <div class="lead">Os 4 processos end-to-end que <b>atravessam</b> módulos. Um único comando dispara efeitos cross-skill — ex.: <code>submit-sales-invoice</code> posta no GL, baixa estoque (SLE) e calcula imposto. Badges marcam os efeitos reais de cada estágio.</div>
+    <div class="legend" id="fxlegend"></div>
+    <div id="streams" style="margin-top:12px"></div>
+  </section>
+  <section id="s-feature">
+    <div class="lead">Árvore de variabilidade (SPL): instalações válidas = <b>Núcleo obrigatório</b> + escolhas opcionais. Verticais são <b>XOR</b> na prática (um negócio escolhe 1). Clique num grupo para expandir. Abaixo, as restrições reais (<code>requires</code>/<code>excludes</code>).</div>
+    <div class="legend"><span><b class="vbadge vb-mandatory">mandatory</b> sempre presente</span><span><b class="vbadge vb-xor">xor</b> escolha exclusiva</span><span><b class="vbadge vb-or">or</b> qualquer combinação</span></div>
+    <div id="feature" style="margin-top:12px"></div>
+    <div class="constraints" id="constraints"></div>
+  </section>
+</main>
+
+<script>
+const ABS = {"camadas":{"layers":[{"id":"L0","nome":"L0 - Substrato / Runtime","descricao":"Camada de fundacao de tempo de execucao do nucleo: o sistema operacional do ERP (constituicao, resolvedor de dependencias, verificador de invariantes do GL, migrador/diff de schema, validador de modulo) e a biblioteca compartilhada erpclaw_lib (db, gl_posting, gl_invariants, rbac, audit, validation, tax_calculation, decimal_utils, pypika). Tudo se assenta aqui.","modulos":[{"nome":"os","acoes":24,"tipo":"core","requires":[]},{"nome":"lib (erpclaw_lib)","acoes":0,"tipo":"infra","requires":[]}]},{"id":"L1","nome":"L1 - Alicerce Contabil","descricao":"Dominios contabeis sem dependencias contabeis a montante: o razao geral (GL) e seus lancamentos (journals) formam o livro-razao; payments e reports leem/registram diretamente contra esse alicerce. setup entra aqui como bootstrap de schema, plano de contas, moedas, UoM e dados-semente, pois habilita todo o restante.","modulos":[{"nome":"setup","acoes":52,"tipo":"core","requires":[]},{"nome":"gl","acoes":38,"tipo":"core","requires":[]},{"nome":"journals","acoes":30,"tipo":"core","requires":[]},{"nome":"payments","acoes":34,"tipo":"core","requires":[]},{"nome":"reports","acoes":28,"tipo":"core","requires":[]}]},{"id":"L2","nome":"L2 - Nucleo Operacional","descricao":"Dominios operacionais que postam sobre o GL (via gl_posting/journals): vendas, compras, estoque, faturamento, impostos, RH, folha e contabilidade avancada (consolidacao, intercompany, leases, revenue). meta (custom fields, registry, dimensoes, metadados) entra aqui como camada transversal de extensibilidade do nucleo.","modulos":[{"nome":"selling","acoes":42,"tipo":"core","requires":[]},{"nome":"buying","acoes":40,"tipo":"core","requires":[]},{"nome":"inventory","acoes":48,"tipo":"core","requires":[]},{"nome":"billing","acoes":30,"tipo":"core","requires":[]},{"nome":"tax","acoes":26,"tipo":"core","requires":[]},{"nome":"hr","acoes":28,"tipo":"core","requires":[]},{"nome":"payroll","acoes":22,"tipo":"core","requires":[]},{"nome":"accounting-adv","acoes":31,"tipo":"core","requires":[]},{"nome":"meta","acoes":24,"tipo":"core","requires":[]}]},{"id":"L3","nome":"L3 - Infraestrutura (Modulos de Expansao)","descricao":"Modulos de expansao transversais (category=infrastructure) que adicionam capacidades horizontais sobre o nucleo erpclaw: alertas, aprovacoes, compliance, documentos, e-sign, frota, emprestimos, logistica, manutencao, planejamento, PDV, self-service e tesouraria. Todos dependem apenas de erpclaw.","modulos":[{"nome":"erpclaw-alerts","acoes":21,"tipo":"infra","requires":["erpclaw"]},{"nome":"erpclaw-approvals","acoes":13,"tipo":"infra","requires":["erpclaw"]},{"nome":"erpclaw-compliance","acoes":38,"tipo":"infra","requires":["erpclaw"]},{"nome":"erpclaw-documents","acoes":25,"tipo":"infra","requires":["erpclaw"]},{"nome":"erpclaw-esign","acoes":13,"tipo":"infra","requires":["erpclaw"]},{"nome":"erpclaw-fleet","acoes":15,"tipo":"infra","requires":["erpclaw"]},{"nome":"erpclaw-loans","acoes":20,"tipo":"infra","requires":["erpclaw"]},{"nome":"erpclaw-logistics","acoes":34,"tipo":"infra","requires":["erpclaw"]},{"nome":"erpclaw-maintenance","acoes":39,"tipo":"infra","requires":["erpclaw"]},{"nome":"erpclaw-planning","acoes":30,"tipo":"infra","requires":["erpclaw"]},{"nome":"erpclaw-pos","acoes":28,"tipo":"infra","requires":["erpclaw"]},{"nome":"erpclaw-selfservice","acoes":25,"tipo":"infra","requires":["erpclaw"]},{"nome":"erpclaw-treasury","acoes":35,"tipo":"infra","requires":["erpclaw"]},{"nome":"erpclaw-growth","acoes":110,"tipo":"expansao","requires":["erpclaw"]},{"nome":"erpclaw-integrations","acoes":80,"tipo":"expansao","requires":["erpclaw"]},{"nome":"erpclaw-integrations-shopify","acoes":66,"tipo":"expansao","requires":["erpclaw"]},{"nome":"erpclaw-integrations-stripe","acoes":67,"tipo":"expansao","requires":["erpclaw"]},{"nome":"erpclaw-ops","acoes":135,"tipo":"expansao","requires":["erpclaw"]},{"nome":"erpclaw-os-engine","acoes":31,"tipo":"expansao","requires":["erpclaw"]}]},{"id":"L4","nome":"L4 - Verticais (Modulos de Expansao)","descricao":"Modulos verticais de industria (category=vertical) que constroem solucoes completas de dominio sobre o nucleo erpclaw: agricultura, automotivo, construcao, educacao, alimentacao, saude, hotelaria, juridico, terceiro setor, propriedades e varejo. Cada um depende apenas de erpclaw e serve de base para sub-verticais (L5).","modulos":[{"nome":"agricultureclaw","acoes":67,"tipo":"vertical","requires":["erpclaw"]},{"nome":"automotiveclaw","acoes":70,"tipo":"vertical","requires":["erpclaw"]},{"nome":"constructclaw","acoes":160,"tipo":"vertical","requires":["erpclaw"]},{"nome":"educlaw","acoes":177,"tipo":"vertical","requires":["erpclaw"]},{"nome":"foodclaw","acoes":80,"tipo":"vertical","requires":["erpclaw"]},{"nome":"healthclaw","acoes":231,"tipo":"vertical","requires":["erpclaw"]},{"nome":"hospitalityclaw","acoes":73,"tipo":"vertical","requires":["erpclaw"]},{"nome":"legalclaw","acoes":100,"tipo":"vertical","requires":["erpclaw"]},{"nome":"nonprofitclaw","acoes":57,"tipo":"vertical","requires":["erpclaw"]},{"nome":"propertyclaw","acoes":103,"tipo":"vertical","requires":["erpclaw"]},{"nome":"retailclaw","acoes":88,"tipo":"vertical","requires":["erpclaw"]}]},{"id":"L5","nome":"L5 - Sub-Verticais e Regionais (Modulos de Expansao)","descricao":"Topo da pilha: sub-verticais (category=sub-vertical) que especializam um vertical de L4 (educlaw-* dependem de educlaw; healthclaw-* dependem de healthclaw; propertyclaw-commercial depende de propertyclaw; educlaw-statereport depende ainda de educlaw-k12) e pacotes regionais (category=regional) que adicionam localizacao fiscal/legal (CA, EU, IN, UK) dependendo apenas de erpclaw.","modulos":[{"nome":"educlaw-finaid","acoes":116,"tipo":"subvertical","requires":["erpclaw","educlaw"]},{"nome":"educlaw-highered","acoes":62,"tipo":"subvertical","requires":["erpclaw","educlaw"]},{"nome":"educlaw-k12","acoes":77,"tipo":"subvertical","requires":["erpclaw","educlaw"]},{"nome":"educlaw-lms","acoes":26,"tipo":"subvertical","requires":["erpclaw","educlaw"]},{"nome":"educlaw-scheduling","acoes":58,"tipo":"subvertical","requires":["erpclaw","educlaw"]},{"nome":"educlaw-statereport","acoes":99,"tipo":"subvertical","requires":["erpclaw","educlaw","educlaw-k12"]},{"nome":"healthclaw-dental","acoes":12,"tipo":"subvertical","requires":["erpclaw","healthclaw"]},{"nome":"healthclaw-homehealth","acoes":12,"tipo":"subvertical","requires":["erpclaw","healthclaw"]},{"nome":"healthclaw-mental","acoes":14,"tipo":"subvertical","requires":["erpclaw","healthclaw"]},{"nome":"healthclaw-vet","acoes":12,"tipo":"subvertical","requires":["erpclaw","healthclaw"]},{"nome":"propertyclaw-commercial","acoes":31,"tipo":"subvertical","requires":["erpclaw","propertyclaw"]},{"nome":"erpclaw-region-ca","acoes":30,"tipo":"regional","requires":["erpclaw"]},{"nome":"erpclaw-region-eu","acoes":26,"tipo":"regional","requires":["erpclaw"]},{"nome":"erpclaw-region-in","acoes":30,"tipo":"regional","requires":["erpclaw"]},{"nome":"erpclaw-region-uk","acoes":28,"tipo":"regional","requires":["erpclaw"]}]}]},"streams":{"streams":[{"id":"O2C","nome":"Order-to-Cash","descricao":"Do cadastro do cliente e cotacao ate a baixa do recebimento: atravessa selling (cotacao, pedido, entrega, fatura), tax (calculo de imposto embutido na fatura), inventory (SLE na entrega/fatura) e payments (recebimento e liquidacao).","estagios":[{"modulo":"selling","acao":"add-customer","label":"Cadastrar cliente","efeitos":["STATUS"]},{"modulo":"selling","acao":"add-quotation","label":"Criar cotacao","efeitos":["TAX","STATUS"]},{"modulo":"selling","acao":"convert-quotation-to-so","label":"Converter em pedido","efeitos":["STATUS"]},{"modulo":"selling","acao":"submit-sales-order","label":"Confirmar pedido","efeitos":["STATUS"]},{"modulo":"selling","acao":"submit-delivery-note","label":"Faturar entrega (baixa estoque)","efeitos":["GL","SLE","STATUS"]},{"modulo":"selling","acao":"submit-sales-invoice","label":"Submeter fatura de venda","efeitos":["GL","SLE","PLE","TAX","STATUS"]},{"modulo":"payments","acao":"add-payment","label":"Lancar recebimento (rascunho)","efeitos":["STATUS"]},{"modulo":"payments","acao":"submit-payment","label":"Submeter e liquidar fatura","efeitos":["GL","PLE","STATUS"]}]},{"id":"P2P","nome":"Procure-to-Pay","descricao":"Da requisicao e cadastro do fornecedor ate o pagamento: atravessa buying (requisicao, pedido, recebimento, fatura), inventory (SLE no recebimento/fatura), tax (input tax na fatura) e payments (pagamento e liquidacao).","estagios":[{"modulo":"buying","acao":"add-supplier","label":"Cadastrar fornecedor","efeitos":["STATUS"]},{"modulo":"buying","acao":"add-material-request","label":"Criar requisicao de material","efeitos":["STATUS"]},{"modulo":"buying","acao":"add-purchase-order","label":"Criar pedido de compra","efeitos":["STATUS"]},{"modulo":"buying","acao":"submit-purchase-order","label":"Confirmar pedido de compra","efeitos":["STATUS"]},{"modulo":"buying","acao":"submit-purchase-receipt","label":"Submeter recebimento (entra estoque)","efeitos":["GL","SLE","STATUS"]},{"modulo":"buying","acao":"submit-purchase-invoice","label":"Submeter fatura de compra","efeitos":["GL","SLE","PLE","TAX","STATUS"]},{"modulo":"payments","acao":"add-payment","label":"Lancar pagamento (rascunho)","efeitos":["STATUS"]},{"modulo":"payments","acao":"submit-payment","label":"Submeter e liquidar a fatura","efeitos":["GL","PLE","STATUS"]}]},{"id":"H2R","nome":"Hire-to-Retire","descricao":"Da admissao do funcionario ate o desligamento, passando pela folha: atravessa hr (admissao, ciclo de vida) e payroll (estrutura salarial, atribuicao, rodada de folha, holerites, postagem contabil e arquivo NACHA).","estagios":[{"modulo":"hr","acao":"add-employee","label":"Admitir funcionario","efeitos":["STATUS"]},{"modulo":"payroll","acao":"add-salary-structure","label":"Criar estrutura salarial","efeitos":["NENHUM"]},{"modulo":"payroll","acao":"add-salary-assignment","label":"Atribuir salario ao funcionario","efeitos":["NENHUM"]},{"modulo":"payroll","acao":"create-payroll-run","label":"Abrir rodada de folha","efeitos":["STATUS"]},{"modulo":"payroll","acao":"generate-salary-slips","label":"Gerar holerites","efeitos":["STATUS"]},{"modulo":"payroll","acao":"submit-payroll-run","label":"Submeter folha (posta GL)","efeitos":["GL","STATUS"]},{"modulo":"payroll","acao":"generate-nacha-file","label":"Gerar arquivo NACHA/ACH","efeitos":["NENHUM"]},{"modulo":"hr","acao":"record-lifecycle-event","label":"Registrar desligamento","efeitos":["STATUS"]}]},{"id":"R2R","nome":"Record-to-Report","descricao":"Do lancamento contabil ate os demonstrativos e fechamento: atravessa journals (lancamento manual), gl (postagem, revalorizacao FX, fechamento do exercicio), accounting-adv/reports (eliminacao intercompany) e reports (validacao, balancete, balanco).","estagios":[{"modulo":"journals","acao":"add-journal-entry","label":"Criar lancamento (rascunho)","efeitos":["STATUS"]},{"modulo":"journals","acao":"submit-journal-entry","label":"Submeter lancamento ao razao","efeitos":["GL","STATUS"]},{"modulo":"gl","acao":"revalue-foreign-balances","label":"Revalorizar saldos em ME","efeitos":["GL"]},{"modulo":"reports","acao":"run-elimination","label":"Executar eliminacoes intercompany","efeitos":["GL"]},{"modulo":"gl","acao":"validate-period-close","label":"Validar fechamento do periodo","efeitos":["NENHUM"]},{"modulo":"reports","acao":"trial-balance","label":"Emitir balancete","efeitos":["NENHUM"]},{"modulo":"reports","acao":"balance-sheet","label":"Emitir balanco patrimonial","efeitos":["NENHUM"]},{"modulo":"gl","acao":"close-fiscal-year","label":"Fechar exercicio fiscal","efeitos":["GL","STATUS"]}]}]},"feature":{"grupos":[{"nome":"Núcleo","variabilidade":"mandatory","modulos":[{"nome":"erpclaw","variabilidade":"mandatory","acoes":505}]},{"nome":"Verticais","variabilidade":"xor","modulos":[{"nome":"agricultureclaw","variabilidade":"xor","acoes":67},{"nome":"automotiveclaw","variabilidade":"xor","acoes":70},{"nome":"constructclaw","variabilidade":"xor","acoes":160},{"nome":"educlaw","variabilidade":"xor","acoes":177,"filhos":[{"nome":"educlaw-finaid","acoes":116},{"nome":"educlaw-k12","acoes":77},{"nome":"educlaw-highered","acoes":62},{"nome":"educlaw-lms","acoes":26},{"nome":"educlaw-scheduling","acoes":58},{"nome":"educlaw-statereport","acoes":99}]},{"nome":"foodclaw","variabilidade":"xor","acoes":80},{"nome":"healthclaw","variabilidade":"xor","acoes":231,"filhos":[{"nome":"healthclaw-dental","acoes":12},{"nome":"healthclaw-mental","acoes":14},{"nome":"healthclaw-vet","acoes":12},{"nome":"healthclaw-homehealth","acoes":12}]},{"nome":"hospitalityclaw","variabilidade":"xor","acoes":73},{"nome":"legalclaw","variabilidade":"xor","acoes":100},{"nome":"nonprofitclaw","variabilidade":"xor","acoes":57},{"nome":"propertyclaw","variabilidade":"xor","acoes":103,"filhos":[{"nome":"propertyclaw-commercial","acoes":31}]},{"nome":"retailclaw","variabilidade":"xor","acoes":88}]},{"nome":"Infraestrutura","variabilidade":"or","modulos":[{"nome":"erpclaw-alerts","variabilidade":"or","acoes":21},{"nome":"erpclaw-approvals","variabilidade":"or","acoes":13},{"nome":"erpclaw-compliance","variabilidade":"or","acoes":38},{"nome":"erpclaw-documents","variabilidade":"or","acoes":25},{"nome":"erpclaw-esign","variabilidade":"or","acoes":13},{"nome":"erpclaw-fleet","variabilidade":"or","acoes":15},{"nome":"erpclaw-loans","variabilidade":"or","acoes":20},{"nome":"erpclaw-logistics","variabilidade":"or","acoes":34},{"nome":"erpclaw-maintenance","variabilidade":"or","acoes":39},{"nome":"erpclaw-planning","variabilidade":"or","acoes":30},{"nome":"erpclaw-pos","variabilidade":"or","acoes":28},{"nome":"erpclaw-selfservice","variabilidade":"or","acoes":25},{"nome":"erpclaw-treasury","variabilidade":"or","acoes":35}]},{"nome":"Expansão","variabilidade":"or","modulos":[{"nome":"erpclaw-ops","variabilidade":"or","acoes":135},{"nome":"erpclaw-growth","variabilidade":"or","acoes":110},{"nome":"erpclaw-integrations","variabilidade":"or","acoes":80},{"nome":"erpclaw-integrations-stripe","variabilidade":"or","acoes":67},{"nome":"erpclaw-integrations-shopify","variabilidade":"or","acoes":66},{"nome":"erpclaw-os-engine","variabilidade":"or","acoes":31}]},{"nome":"Regional","variabilidade":"or","modulos":[{"nome":"erpclaw-region-ca","variabilidade":"or","acoes":30},{"nome":"erpclaw-region-eu","variabilidade":"or","acoes":26},{"nome":"erpclaw-region-in","variabilidade":"or","acoes":30},{"nome":"erpclaw-region-uk","variabilidade":"or","acoes":28}]}],"constraints":[{"tipo":"requires","de":"agricultureclaw","para":"erpclaw","nota":"Registry: requires=[erpclaw]. Todo vertical depende do núcleo."},{"tipo":"requires","de":"automotiveclaw","para":"erpclaw","nota":"Registry: requires=[erpclaw]."},{"tipo":"requires","de":"constructclaw","para":"erpclaw","nota":"Registry: requires=[erpclaw]."},{"tipo":"requires","de":"educlaw","para":"erpclaw","nota":"Registry: requires=[erpclaw]."},{"tipo":"requires","de":"foodclaw","para":"erpclaw","nota":"Registry: requires=[erpclaw]."},{"tipo":"requires","de":"healthclaw","para":"erpclaw","nota":"Registry: requires=[erpclaw]."},{"tipo":"requires","de":"hospitalityclaw","para":"erpclaw","nota":"Registry: requires=[erpclaw]."},{"tipo":"requires","de":"legalclaw","para":"erpclaw","nota":"Registry: requires=[erpclaw]."},{"tipo":"requires","de":"nonprofitclaw","para":"erpclaw","nota":"Registry: requires=[erpclaw]."},{"tipo":"requires","de":"propertyclaw","para":"erpclaw","nota":"Registry: requires=[erpclaw]."},{"tipo":"requires","de":"retailclaw","para":"erpclaw","nota":"Registry: requires=[erpclaw]."},{"tipo":"requires","de":"educlaw-finaid","para":"educlaw","nota":"Registry: requires=[erpclaw, educlaw]. Sub-vertical depende do vertical pai."},{"tipo":"requires","de":"educlaw-highered","para":"educlaw","nota":"Registry: requires=[erpclaw, educlaw]."},{"tipo":"requires","de":"educlaw-k12","para":"educlaw","nota":"Registry: requires=[erpclaw, educlaw]."},{"tipo":"requires","de":"educlaw-lms","para":"educlaw","nota":"Registry: requires=[erpclaw, educlaw]."},{"tipo":"requires","de":"educlaw-scheduling","para":"educlaw","nota":"Registry: requires=[erpclaw, educlaw]."},{"tipo":"requires","de":"educlaw-statereport","para":"educlaw","nota":"Registry: requires=[erpclaw, educlaw, educlaw-k12]."},{"tipo":"requires","de":"educlaw-statereport","para":"educlaw-k12","nota":"Registry REAL: requires inclui educlaw-k12. State reporting depende de K-12 (Ed-Fi/CEDS sobre dados K-12), nao apenas do vertical educlaw."},{"tipo":"requires","de":"healthclaw-dental","para":"healthclaw","nota":"Registry: requires=[erpclaw, healthclaw]."},{"tipo":"requires","de":"healthclaw-mental","para":"healthclaw","nota":"Registry: requires=[erpclaw, healthclaw]."},{"tipo":"requires","de":"healthclaw-vet","para":"healthclaw","nota":"Registry: requires=[erpclaw, healthclaw]."},{"tipo":"requires","de":"healthclaw-homehealth","para":"healthclaw","nota":"Registry: requires=[erpclaw, healthclaw]."},{"tipo":"requires","de":"propertyclaw-commercial","para":"propertyclaw","nota":"Registry: requires=[erpclaw, propertyclaw]."},{"tipo":"requires","de":"erpclaw-ops","para":"erpclaw","nota":"Registry: requires=[erpclaw]. Todo modulo de expansao depende do nucleo."},{"tipo":"requires","de":"erpclaw-growth","para":"erpclaw","nota":"Registry: requires=[erpclaw]."},{"tipo":"requires","de":"erpclaw-integrations","para":"erpclaw","nota":"Registry: requires=[erpclaw]."},{"tipo":"requires","de":"erpclaw-integrations-stripe","para":"erpclaw","nota":"Registry REAL: requires=[erpclaw] APENAS. Nao declara dependencia de erpclaw-integrations no registry."},{"tipo":"requires","de":"erpclaw-integrations-shopify","para":"erpclaw","nota":"Registry REAL: requires=[erpclaw] APENAS. Nao declara dependencia de erpclaw-integrations no registry."},{"tipo":"requires","de":"erpclaw-integrations-stripe","para":"erpclaw-integrations","nota":"INFERIDA (nao no registry): conector profundo Stripe e logicamente um especializacao do hub erpclaw-integrations (Stripe ja listado nas tags de integrations). Plausivel mas NAO presente no campo requires."},{"tipo":"requires","de":"erpclaw-integrations-shopify","para":"erpclaw-integrations","nota":"INFERIDA (nao no registry): conector profundo Shopify e especializacao do hub erpclaw-integrations (Shopify ja listado nas tags de integrations). Plausivel mas NAO presente no campo requires."},{"tipo":"requires","de":"erpclaw-os-engine","para":"erpclaw","nota":"Registry: requires=[erpclaw]. Camada opcional de auto-melhoria/dev-time."},{"tipo":"requires","de":"erpclaw-alerts","para":"erpclaw","nota":"Registry: requires=[erpclaw]. Todo modulo de infraestrutura depende do nucleo."},{"tipo":"requires","de":"erpclaw-approvals","para":"erpclaw","nota":"Registry: requires=[erpclaw]."},{"tipo":"requires","de":"erpclaw-compliance","para":"erpclaw","nota":"Registry: requires=[erpclaw]."},{"tipo":"requires","de":"erpclaw-documents","para":"erpclaw","nota":"Registry: requires=[erpclaw]."},{"tipo":"requires","de":"erpclaw-esign","para":"erpclaw","nota":"Registry: requires=[erpclaw]."},{"tipo":"requires","de":"erpclaw-fleet","para":"erpclaw","nota":"Registry: requires=[erpclaw]."},{"tipo":"requires","de":"erpclaw-loans","para":"erpclaw","nota":"Registry: requires=[erpclaw]."},{"tipo":"requires","de":"erpclaw-logistics","para":"erpclaw","nota":"Registry: requires=[erpclaw]."},{"tipo":"requires","de":"erpclaw-maintenance","para":"erpclaw","nota":"Registry: requires=[erpclaw]."},{"tipo":"requires","de":"erpclaw-planning","para":"erpclaw","nota":"Registry: requires=[erpclaw]."},{"tipo":"requires","de":"erpclaw-pos","para":"erpclaw","nota":"Registry: requires=[erpclaw]."},{"tipo":"requires","de":"erpclaw-selfservice","para":"erpclaw","nota":"Registry: requires=[erpclaw]."},{"tipo":"requires","de":"erpclaw-treasury","para":"erpclaw","nota":"Registry: requires=[erpclaw]."},{"tipo":"requires","de":"erpclaw-region-ca","para":"erpclaw","nota":"Registry: requires=[erpclaw]. Todo regional depende do nucleo."},{"tipo":"requires","de":"erpclaw-region-eu","para":"erpclaw","nota":"Registry: requires=[erpclaw]."},{"tipo":"requires","de":"erpclaw-region-in","para":"erpclaw","nota":"Registry: requires=[erpclaw]."},{"tipo":"requires","de":"erpclaw-region-uk","para":"erpclaw","nota":"Registry: requires=[erpclaw]."},{"tipo":"excludes","de":"erpclaw-region-ca","para":"erpclaw-region-eu","nota":"INFERIDA (nao no registry): regimes fiscais nacionais mutuamente exclusivos por entidade legal (CRA/GST-HST vs VAT/MOSS). Um negocio opera sob uma jurisdicao fiscal primaria."},{"tipo":"excludes","de":"erpclaw-region-ca","para":"erpclaw-region-in","nota":"INFERIDA (nao no registry): COA e regimes fiscais distintos (ASPE/GST-HST vs CGST/SGST/IGST). Exclusao plausivel por entidade."},{"tipo":"excludes","de":"erpclaw-region-ca","para":"erpclaw-region-uk","nota":"INFERIDA (nao no registry): CRA/T4/ROE vs HMRC/MTD/PAYE. Exclusao plausivel por entidade."},{"tipo":"excludes","de":"erpclaw-region-eu","para":"erpclaw-region-in","nota":"INFERIDA (nao no registry): VAT/SEPA/Intrastat vs GST/TDS/e-way-bill. Exclusao plausivel por entidade."},{"tipo":"excludes","de":"erpclaw-region-eu","para":"erpclaw-region-uk","nota":"INFERIDA (nao no registry): pos-Brexit, UK fora do regime VAT/SEPA da UE (MTD/customs proprios). Exclusao plausivel por entidade."},{"tipo":"excludes","de":"erpclaw-region-in","para":"erpclaw-region-uk","nota":"INFERIDA (nao no registry): CGST/SGST/IGST/TDS vs MTD/PAYE/NI. Exclusao plausivel por entidade."}]}};
+
+const TIPO_COR = { core:'#0d9488', infra:'#7c3aed', expansao:'#db2777', vertical:'#2563eb', subvertical:'#0ea5e9', regional:'#ea580c' };
+const FX_COR = { GL:'#0d9488', SLE:'#2563eb', PLE:'#db2777', TAX:'#ea580c', STATUS:'#64748b', NENHUM:'#3a4658' };
+const esc = s => String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+function rgba(hex,a){const n=parseInt(hex.slice(1),16);return `rgba(${n>>16&255},${n>>8&255},${n&255},${a})`;}
+
+function renderCamadas(){
+  const layers=ABS.camadas.layers.slice().reverse(); // L5 no topo, L0 embaixo
+  document.getElementById('camadas').innerHTML = layers.map(l=>`
+    <div class="layer">
+      <div class="lhead"><div class="lid">${esc(l.nome)}</div><div class="ldesc">${esc(l.descricao)}</div></div>
+      <div class="lbody">${l.modulos.map(m=>{const c=TIPO_COR[m.tipo]||'#64748b';
+        return `<span class="chip" style="border-color:${c};background:${rgba(c,.16)}" title="${esc(m.tipo)}${m.requires&&m.requires.length?' · requires: '+esc(m.requires.join(', ')):''}">${esc(m.nome)}${m.acoes?`<span class="n">${m.acoes}</span>`:''}</span>`;}).join('')}</div>
+    </div>`).join('');
+}
+
+function renderStreams(){
+  document.getElementById('fxlegend').innerHTML = 'Efeitos: '+Object.keys(FX_COR).filter(k=>k!=='NENHUM').map(k=>`<span><b style="background:${FX_COR[k]}">${k}</b></span>`).join('')+' <span class="muted">GL=razão · SLE=estoque · PLE=razão de pagamentos · TAX=imposto · STATUS=ciclo do documento</span>';
+  document.getElementById('streams').innerHTML = ABS.streams.streams.map(s=>`
+    <div class="stream">
+      <h3>${esc(s.nome)} <span class="muted">(${esc(s.id)})</span></h3>
+      <p>${esc(s.descricao)}</p>
+      <div class="flow">${s.estagios.map((e,i)=>`
+        ${i>0?'<div class="arr">→</div>':''}
+        <div class="stage">
+          <div class="ord">#${i+1}</div>
+          <span class="mod">${esc(e.modulo)}</span>
+          <div class="lbl">${esc(e.label)}</div>
+          <code>${esc(e.acao)}</code>
+          <div class="fx">${(e.efeitos||[]).map(f=>`<b style="background:${FX_COR[f]||'#3a4658'}">${esc(f)}</b>`).join('')}</div>
+        </div>`).join('')}</div>
+    </div>`).join('');
+}
+
+function renderFeature(){
+  const F=ABS.feature;
+  document.getElementById('feature').innerHTML = F.grupos.map((g,gi)=>`
+    <div class="fgroup${gi===0?' open':''}">
+      <div class="fghead" onclick="this.parentElement.classList.toggle('open')">
+        <span class="fgname">${esc(g.nome)}</span>
+        <span class="vbadge vb-${g.variabilidade}">${esc(g.variabilidade)}</span>
+        <span class="muted" style="margin-left:auto">${g.modulos.length} módulos</span>
+      </div>
+      <div class="fgbody">${g.modulos.map(m=>`
+        <div class="fmod">
+          <div class="row"><span>${esc(m.nome)}</span><span class="n">${m.acoes}</span>${m.variabilidade?`<span class="vbadge vb-${m.variabilidade}">${esc(m.variabilidade)}</span>`:''}</div>
+          ${m.filhos&&m.filhos.length?`<div class="filhos">${m.filhos.map(f=>`<span>${esc(f.nome)} · ${f.acoes}</span>`).join('')}</div>`:''}
+        </div>`).join('')}</div>
+    </div>`).join('');
+
+  // constraints: separa triviais (requires erpclaw) das notáveis
+  const cs=F.constraints||[];
+  const triviais=cs.filter(c=>c.tipo==='requires'&&c.para==='erpclaw');
+  const notaveis=cs.filter(c=>!(c.tipo==='requires'&&c.para==='erpclaw'));
+  document.getElementById('constraints').innerHTML =
+    `<h4>Restrições (${cs.length})</h4>`+
+    `<div class="muted" style="margin-bottom:8px">+ ${triviais.length} dependências triviais ao núcleo (todo módulo de expansão <code>requires</code> <code>erpclaw</code>).</div>`+
+    `<div class="ctab">`+notaveis.map(c=>`
+      <span class="${c.tipo==='requires'?'req':'exc'}">${c.tipo==='requires'?'requires':'excludes'}</span>
+      <span><code>${esc(c.de)}</code> ${c.tipo==='requires'?'→':'⊗'} <code>${esc(c.para)}</code></span>
+      <span class="muted">${esc(c.nota)}</span>`).join('')+`</div>`;
+}
+
+function tab(name){
+  ['camadas','streams','feature'].forEach(n=>{
+    document.getElementById('s-'+n).classList.toggle('active',n===name);
+    document.getElementById('t-'+n).classList.toggle('active',n===name);
+  });
+}
+renderCamadas(); renderStreams(); renderFeature();
+</script>
+</body>
+</html>
