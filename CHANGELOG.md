@@ -2,6 +2,18 @@
 
 All notable changes to the ERPClaw foundation skill.
 
+## [4.9.0] — 2026-06-14
+
+### Removed — air-gapped fork (no upstream data sync)
+- **Remote registry fetch.** `_load_registry` no longer fetches from `raw.githubusercontent.com/avansaber/erpclaw`; `REMOTE_REGISTRY_URL`, `REMOTE_SIGNATURE_URL`, `GITHUB_RAW_BASE` and the on-disk registry cache are gone. The registry is read bundled-only from `scripts/module_registry.json`. `_load_registry_strict` deleted.
+- **Foundation reconciliation subsystem.** Actions `update-foundation`, `rollback-foundation`, `verify-trust-root` removed along with their helpers (`_fetch_remote_file`, `_sync_log`, sync lock, `_walk_foundation_tree`, `_compute_foundation_drift`, `_atomic_write`, `_is_dev_source_tree`) and the sync markers/constants. The ed25519 trust-root/signature path and `erpclaw_lib/signing.py` (plus `module_registry.json.sig` and `signing_log.txt`) were deleted.
+- **Network module install/update.** `install-module` (git-clone from `github.com/avansaber/*`) and `update-modules` (git fetch/pull) removed, with their git-clone/sparse-checkout helpers. Modules are bundled-only and activated locally.
+- **Drift reminder.** `db_query.py` `_maybe_check_drift_reminder` + its call site and `SYNC_RECURSION_GUARD` removed; the `--no-reconcile-check` flag is gone.
+
+### Changed
+- Module manager and onboarding are now offline/local-only: `module-status` no longer probes a git remote; `onboard` and `create-company` resolve/report bundled modules instead of installing them.
+- `git` dropped from SKILL.md `requires.bins`; advertised action count reduced by 5; docs updated to describe the air-gapped, bundled-module model.
+
 ## [4.8.0] — 2026-06-11
 
 ### Added

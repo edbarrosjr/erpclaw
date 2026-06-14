@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""ERPClaw Onboarding — profile-based module auto-installer.
+"""ERPClaw Onboarding — profile-based module resolver.
 
-Provides 18 business profiles that auto-install the right set of modules
-for each business type. Users select a profile and the system handles
-dependency resolution and installation.
+Provides business profiles that map each business type to its set of bundled
+modules. Air-gapped: users select a profile and the system reports the
+modules it maps to (and any regional module) — modules ship bundled and are
+activated locally, so there is no network install.
 
 Usage: python3 onboarding.py --action <action-name> [--flags ...]
 Output: JSON to stdout, exit 0 on success, exit 1 on error.
@@ -263,10 +264,13 @@ def list_profiles(conn, args):
 
 
 def onboard(conn, args):
-    """Install all modules for a business profile.
+    """Resolve the modules a business profile maps to.
 
-    Resolves dependencies and installs modules in order. Skips already-installed
-    modules. Reports progress for each module.
+    Air-gapped: modules ship bundled with the install and are activated
+    locally — this action performs NO network install. It resolves the
+    profile's module set (and any regional module for --country) and reports
+    which of those are already present in the local install vs. not yet
+    activated.
     """
     profile_name = getattr(args, "profile", None)
     if not profile_name:
@@ -282,111 +286,44 @@ def onboard(conn, args):
         )
 
     profile = PROFILES[profile_name]
-    modules_to_install = profile["modules"]
+    modules_for_profile = list(profile["modules"])
 
-    if not modules_to_install:
+    # Regional module for --country (informational; bundled, not fetched)
+    country = getattr(args, "country", None)
+    region_module = COUNTRY_REGION_MAP.get(country) if country else None
+    if region_module and region_module not in modules_for_profile:
+        modules_for_profile.append(region_module)
+
+    if not modules_for_profile:
         ok({
             "profile": profile_name,
             "display_name": profile["display_name"],
-            "installed": [],
-            "skipped": [],
-            "failed": [],
-            "note": "Custom profile selected — use --action install-module --module-name <name> to install individual modules",
+            "modules": [],
+            "region_module": region_module,
+            "note": "Custom profile selected — no modules to activate; modules ship bundled in this air-gapped fork.",
         })
         return
 
-    # Check which modules are already installed
+    # Report which target modules are already present in the local install.
     installed_rows = conn.execute(
         "SELECT name FROM erpclaw_module WHERE install_status = 'installed'"
     ).fetchall()
     already_installed = {row["name"] for row in installed_rows}
 
-    installed = []
-    skipped = []
-    failed = []
-
-    # Import module_manager for install functionality
-    sys.path.insert(0, SCRIPT_DIR)
-    from module_manager import _load_registry, _install_module_inner
-
-    registry = _load_registry()
-    # Handle dict-keyed registry
-    modules_raw = registry.get("modules", {})
-    if isinstance(modules_raw, dict):
-        modules_by_name = {}
-        for name, info in modules_raw.items():
-            info_copy = dict(info)
-            info_copy.setdefault("name", name)
-            modules_by_name[name] = info_copy
-    else:
-        modules_by_name = {m["name"]: m for m in modules_raw}
-
-    for module_name in modules_to_install:
-        if module_name in already_installed:
-            skipped.append({"module": module_name, "reason": "already installed"})
-            continue
-
-        if module_name not in modules_by_name:
-            failed.append({"module": module_name, "error": "not found in registry"})
-            continue
-
-        try:
-            install_args = argparse.Namespace(module_name=module_name)
-            result = _install_module_inner(install_args, conn, modules_by_name, depth=0)
-            installed.append(result)
-            already_installed.add(module_name)
-        except SystemExit:
-            # ok()/err() in sub-calls trigger sys.exit — reconnect
-            conn = get_connection()
-            # Check if it actually succeeded
-            check = conn.execute(
-                "SELECT install_status FROM erpclaw_module WHERE name = ?",
-                (module_name,)
-            ).fetchone()
-            if check and check["install_status"] == "installed":
-                installed.append({"module": module_name, "note": "installed"})
-                already_installed.add(module_name)
-            else:
-                failed.append({"module": module_name, "error": "installation interrupted"})
-        except Exception as e:
-            failed.append({"module": module_name, "error": str(e)})
-
-    # Auto-install regional module if --country is provided
-    country = getattr(args, "country", None)
-    region_module = COUNTRY_REGION_MAP.get(country) if country else None
-    if region_module:
-        if region_module in already_installed:
-            skipped.append({"module": region_module, "reason": "already installed"})
-        elif region_module not in modules_by_name:
-            failed.append({"module": region_module, "error": "not found in registry"})
-        else:
-            try:
-                install_args = argparse.Namespace(module_name=region_module)
-                result = _install_module_inner(install_args, conn, modules_by_name, depth=0)
-                installed.append(result)
-                already_installed.add(region_module)
-            except SystemExit:
-                conn = get_connection()
-                check = conn.execute(
-                    "SELECT install_status FROM erpclaw_module WHERE name = ?",
-                    (region_module,)
-                ).fetchone()
-                if check and check["install_status"] == "installed":
-                    installed.append({"module": region_module, "note": "installed (regional)"})
-                    already_installed.add(region_module)
-                else:
-                    failed.append({"module": region_module, "error": "installation interrupted"})
-            except Exception as e:
-                failed.append({"module": region_module, "error": str(e)})
+    present = [m for m in modules_for_profile if m in already_installed]
+    not_activated = [m for m in modules_for_profile if m not in already_installed]
 
     ok({
         "profile": profile_name,
         "display_name": profile["display_name"],
-        "installed": installed,
-        "skipped": skipped,
-        "failed": failed,
+        "modules": modules_for_profile,
         "region_module": region_module,
-        "summary": f"{len(installed)} installed, {len(skipped)} skipped, {len(failed)} failed",
+        "already_present": present,
+        "not_activated": not_activated,
+        "note": (
+            "Air-gapped fork: modules ship bundled and are activated locally — "
+            "no network install is performed."
+        ),
     })
 
 
@@ -401,7 +338,7 @@ def main():
     parser.add_argument("--action", required=True, choices=sorted(ACTIONS.keys()))
     parser.add_argument("--profile", help="Business profile name")
     parser.add_argument("--country", default=None,
-                        help="Country code (e.g. IN, CA, GB, DE) — auto-installs regional module")
+                        help="Country code (e.g. IN, CA, GB, DE) — maps to the bundled regional module")
     parser.add_argument("--db-path", default=None)
 
     args = parser.parse_args()

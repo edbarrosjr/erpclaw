@@ -1816,11 +1816,10 @@ def _setup_web_dashboard_moved_stub(args):
         "missing_addon": "erpclaw-os-engine",
         "old_action": "setup-web-dashboard",
         "new_action": "os-setup-web-dashboard",
-        "install_command": (
-            "python3 ~/.openclaw/workspace/skills/erpclaw/scripts/module_manager.py "
-            "--action install-module --module-name erpclaw-os-engine"
+        "note": (
+            "The erpclaw-os-engine addon is external developer tooling and is "
+            "not bundled in this air-gapped fork."
         ),
-        "github": "https://github.com/avansaber/erpclaw-addons (subdir erpclaw-os-engine)",
         "since_version": "4.0.0",
     }, indent=2))
     sys.exit(1)

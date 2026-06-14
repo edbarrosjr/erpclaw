@@ -124,9 +124,7 @@ def cmd_version() -> int:
     """Print the foundation erpclaw version as recorded in its SKILL.md frontmatter.
 
     Reads from the shim's own skill (SKILL_ROOT/SKILL.md), which is the
-    canonical version source: SKILL.md is part of the signed manifest the
-    foundation reconciliation pipeline keeps in sync, so this stays accurate
-    across update-foundation invocations without any extra refresh step.
+    canonical version source for this bundled, air-gapped install.
     """
     core_skill = SKILL_ROOT / "SKILL.md"
     if core_skill.exists():

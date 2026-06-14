@@ -64,9 +64,10 @@ Industry coverage comes the same way, with no second install command:
 "Set me up for a clinic" → pulls clinical practice management
 ```
 
-Vertical code lives on GitHub and is fetched on demand by sparse checkout, so
-only the module you asked for is downloaded. You never run another install
-command and never have to know what a module is.
+Every vertical is bundled with the install. When you ask for an industry,
+ERPClaw activates the bundled module locally and creates its tables — nothing
+is downloaded. You never run another install command and never have to know
+what a module is.
 
 ## What it covers
 
@@ -115,18 +116,18 @@ The foundation routes every operation through one entry point,
 domains (`setup`, `gl`, `selling`, `buying`, `inventory`, `billing`, `tax`,
 `payments`, `journals`, `reports`, `hr`, `payroll`, `accounting-adv`) plus
 `meta` and `os` infrastructure. The module registry
-(`scripts/module_registry.json`) tracks every additional module across the
-`github.com/avansaber/*` repos and installs them on demand by sparse checkout.
+(`scripts/module_registry.json`) catalogs every additional module bundled with
+the install; each is activated locally with no download.
 
 Module authoring and DGM evolution (code generation, sandboxed test runs, the
 deploy pipeline) live in the optional
 [`erpclaw-os-engine`](https://github.com/avansaber/erpclaw-addons/tree/main/erpclaw-os-engine)
-addon, which is not installed by default. The foundation runs no
-module-generation or auto-deploy code paths.
+addon, which is external dev tooling and is not bundled in this air-gapped
+fork. The foundation runs no module-generation or auto-deploy code paths.
 
 <sub>Current build:
 <!-- SYNC:facts:start -->
-ERPClaw v4.8.0 | 46 modules (46 active + 0 preview) | 3,169 actions
+ERPClaw v4.8.0 | 46 modules (46 active + 0 preview) | 3,164 actions
 <!-- SYNC:facts:end -->
 </sub>
 

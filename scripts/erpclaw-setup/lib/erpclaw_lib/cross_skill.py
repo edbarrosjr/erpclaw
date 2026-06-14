@@ -105,11 +105,11 @@ def call_skill_action(
         try:
             err_data = json.loads(raw)
             msg = err_data.get("message", err_data.get("error", raw[:500]))
-            # Surface module install suggestion if available
+            # Surface which module would provide this action, if known
             suggested = err_data.get("suggested_module")
             if suggested:
-                msg = (f"Action '{action}' requires module '{suggested}' which is not installed. "
-                       f"Install it with: install-module --module-name {suggested}")
+                msg = (f"Action '{action}' requires module '{suggested}', "
+                       f"which is not part of this local install.")
         except (json.JSONDecodeError, TypeError):
             msg = raw[:500] if raw else "Unknown error (no output)"
         raise CrossSkillError(

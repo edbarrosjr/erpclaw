@@ -7,7 +7,6 @@ Manages companies, currencies, payment terms, UoMs, seed data, and backups.
 Usage: python3 db_query.py --action <action-name> [--flags ...]
 Output: JSON to stdout, exit 0 on success, exit 1 on error.
 """
-import argparse
 import glob as glob_mod
 import json
 import os
@@ -177,89 +176,38 @@ def setup_company(conn, args):
         sys.stderr.write(f"[erpclaw-setup] Warehouse creation failed: {e}\n")
         pass  # Non-fatal — user can create manually
 
-    # Auto-onboard if --industry is provided
-    modules_installed = []
-    modules_failed = []
+    # Resolve the onboarding profile / regional module if --industry is provided.
+    # Air-gapped: modules ship bundled and are activated locally — nothing is
+    # installed over the network here. We only report which bundled modules the
+    # company's industry/country map to.
     onboard_profile = None
     region_module = None
+    profile_modules = []
     if getattr(args, "industry", None):
         industry_key = args.industry.lower().replace(" ", "-")
         onboard_profile = INDUSTRY_PROFILE_MAP.get(industry_key)
         if onboard_profile:
             try:
-                # Import onboarding module and call onboard programmatically
+                # Local profile/country data only (no network, no installer).
                 sys.path.insert(0, os.path.join(SKILL_DIR, ".."))
                 from onboarding import PROFILES, COUNTRY_REGION_MAP
-                from module_manager import _load_registry, _install_module_inner, _registry_to_dict, build_action_cache
 
                 profile = PROFILES.get(onboard_profile)
                 if profile:
-                    registry = _load_registry()
-                    modules_by_name = _registry_to_dict(registry)
-                    installed_rows = conn.execute(
-                        "SELECT name FROM erpclaw_module WHERE install_status = 'installed'"
-                    ).fetchall()
-                    already_installed = {row["name"] for row in installed_rows}
-
-                    for module_name in profile["modules"]:
-                        if module_name in already_installed:
-                            continue
-                        if module_name not in modules_by_name:
-                            continue
-                        try:
-                            install_args = argparse.Namespace(module_name=module_name)
-                            _install_module_inner(install_args, conn, modules_by_name, depth=0)
-                            modules_installed.append(module_name)
-                            already_installed.add(module_name)
-                        except SystemExit:
-                            conn = get_connection()
-                            check = conn.execute(
-                                "SELECT install_status FROM erpclaw_module WHERE name = ?",
-                                (module_name,)
-                            ).fetchone()
-                            if check and check["install_status"] == "installed":
-                                modules_installed.append(module_name)
-                                already_installed.add(module_name)
-                        except Exception as e:
-                            # Best-effort onboarding: one module failing must not
-                            # abort the rest, but the failure must be visible —
-                            # not silently swallowed (user asked for this module).
-                            modules_failed.append({"module": module_name, "error": str(e)})
-                            print(f"WARN: onboarding auto-install of module "
-                                  f"'{module_name}' failed: {e}", file=sys.stderr)
-
-                    # Also install regional module based on country
+                    profile_modules = list(profile["modules"])
                     country_val = args.country or "United States"
                     region_module = COUNTRY_REGION_MAP.get(country_val)
-                    if region_module and region_module not in already_installed:
-                        if region_module in modules_by_name:
-                            try:
-                                install_args = argparse.Namespace(module_name=region_module)
-                                _install_module_inner(install_args, conn, modules_by_name, depth=0)
-                                modules_installed.append(region_module)
-                            except SystemExit:
-                                conn = get_connection()
-                                check = conn.execute(
-                                    "SELECT install_status FROM erpclaw_module WHERE name = ?",
-                                    (region_module,)
-                                ).fetchone()
-                                if check and check["install_status"] == "installed":
-                                    modules_installed.append(region_module)
-                            except Exception as e:
-                                modules_failed.append({"module": region_module, "error": str(e)})
-                                print(f"WARN: onboarding auto-install of region module "
-                                      f"'{region_module}' failed: {e}", file=sys.stderr)
+                    if region_module and region_module not in profile_modules:
+                        profile_modules.append(region_module)
             except ImportError:
-                pass  # Onboarding not available — skip silently
+                pass  # Onboarding data not available — skip silently
 
     result = {"company_id": company_id, "name": name, "abbr": abbr,
               "fiscal_year_id": fy_id, "cost_center_id": cc_id, "warehouse_id": wh_id}
     if onboard_profile:
         result["onboard_profile"] = onboard_profile
-    if modules_installed:
-        result["modules_installed"] = modules_installed
-    if modules_failed:
-        result["modules_failed"] = modules_failed
+    if profile_modules:
+        result["profile_modules"] = profile_modules
     if region_module:
         result["region_module"] = region_module
     ok(result)

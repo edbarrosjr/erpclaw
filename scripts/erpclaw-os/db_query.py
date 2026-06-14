@@ -5,9 +5,8 @@ After the 2026-05-04 split, the foundation `erpclaw-os/` keeps only
 the runtime-essential actions: module validation against the
 Constitution, schema migration, and the table-ownership registry
 builder. The dev-time module-generation, deploy pipeline, and
-DGM evolution actions moved to the optional addon
-`erpclaw-os-engine` (avansaber/erpclaw-addons subdir
-erpclaw-os-engine).
+DGM evolution actions live in the external developer addon
+`erpclaw-os-engine`, which is not bundled in this air-gapped fork.
 
 Runtime actions handled here (7 total):
 - validate-module
@@ -19,8 +18,8 @@ Runtime actions handled here (7 total):
 - schema-drift
 
 If a caller invokes one of the moved actions on the foundation
-router, they get a missing-addon error JSON pointing them at
-`module_manager.py install-module --module-name erpclaw-os-engine`.
+router, they get a missing-addon error JSON noting that the
+erpclaw-os-engine addon is not bundled in this air-gapped fork.
 The mapping from old bare names to new os-prefixed names is
 emitted with the error.
 
@@ -204,11 +203,10 @@ def handle_moved_to_addon(action):
         "missing_addon": "erpclaw-os-engine",
         "old_action": action,
         "new_action": new_action,
-        "install_command": (
-            "python3 ~/.openclaw/workspace/skills/erpclaw/scripts/module_manager.py "
-            "--action install-module --module-name erpclaw-os-engine"
+        "note": (
+            "The erpclaw-os-engine addon is external developer tooling and is "
+            "not bundled in this air-gapped fork."
         ),
-        "github": "https://github.com/avansaber/erpclaw-addons (subdir erpclaw-os-engine)",
         "since_version": "4.0.0",
     }, indent=2))
     sys.exit(1)

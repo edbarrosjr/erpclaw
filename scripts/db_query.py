@@ -15,7 +15,6 @@ import json
 import os
 import sqlite3
 import sys
-import time
 from uuid import uuid4
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -624,20 +623,11 @@ ALIASES = {
 # Module management actions — forwarded to module_manager.py / onboarding.py
 # ---------------------------------------------------------------------------
 MODULE_ACTIONS = {
-    "install-module", "remove-module", "update-modules",
+    "remove-module",
     "list-modules", "available-modules", "module-status",
     "search-modules", "rebuild-action-cache", "list-all-actions",
     "regenerate-skill-md",
-    "update-foundation", "rollback-foundation", "verify-trust-root",
 }
-
-# Actions that touch foundation install state; sync hook MUST skip these
-# to avoid re-entering update during their own execution.
-SYNC_RECURSION_GUARD = frozenset({
-    "update-foundation", "rollback-foundation", "verify-trust-root",
-    "install-module", "remove-module", "update-modules",
-    "schema-apply", "schema-rollback",
-})
 
 ONBOARDING_ACTIONS = {
     "list-profiles", "onboard",
@@ -693,8 +683,7 @@ DANGEROUS_ACTIONS = frozenset({
     "set-credential", "delete-credential", "migrate-credentials",
     "import-master-key-from-backup",
     # Module lifecycle
-    "install-module", "remove-module", "update-modules",
-    "update-foundation", "rollback-foundation",
+    "remove-module",
     # Schema migrations
     "schema-apply", "schema-rollback",
     # Initialize-database --force
@@ -743,75 +732,6 @@ def find_action():
         if arg == "--action" and i + 1 < len(sys.argv):
             return sys.argv[i + 1]
     return None
-
-
-def _maybe_check_drift_reminder(action):
-    """Surface a one-line reminder if the installed foundation version differs
-    from the published manifest.
-
-    Read-only; never modifies files. The user invokes `update-foundation
-    --user-confirmed` explicitly to reconcile. At most one reminder per
-    24-hour window per install. Best-effort: silent on any failure; never
-    blocks dispatch.
-    """
-    if action in SYNC_RECURSION_GUARD:
-        return
-    if "--no-reconcile-check" in sys.argv:
-        return
-    skip_marker = os.path.expanduser("~/.openclaw/erpclaw/.skip_reconcile")
-    if os.path.isfile(skip_marker):
-        return
-    # Skip when SKILL.md is tracked by an enclosing git repo (developer checkout)
-    install_root = os.path.dirname(BASE_DIR)
-    skill_md = os.path.join(install_root, "SKILL.md")
-    if os.path.isfile(skill_md):
-        try:
-            import subprocess as _sp
-            r = _sp.run(["git", "-C", install_root, "ls-files",
-                         "--error-unmatch", "SKILL.md"],
-                        capture_output=True, timeout=5)
-            if r.returncode == 0:
-                return
-        except (Exception,):
-            pass
-
-    last_check = os.path.expanduser("~/.openclaw/erpclaw/.last_drift_check")
-    try:
-        if os.path.isfile(last_check):
-            if time.time() - os.path.getmtime(last_check) < 86400:
-                return
-    except OSError:
-        return
-
-    try:
-        cache = os.path.expanduser("~/.openclaw/erpclaw/registry_cache.json")
-        if not os.path.isfile(cache):
-            return
-        with open(cache) as f:
-            data = json.load(f)
-        published = data.get("modules", {}).get("erpclaw", {}).get("version")
-        local = None
-        skill_md = os.path.join(install_root, "SKILL.md")
-        if os.path.isfile(skill_md):
-            with open(skill_md) as f:
-                for line in f:
-                    if line.startswith("version:"):
-                        local = line.split(":", 1)[1].strip()
-                        break
-        if published and local and published != local:
-            print(
-                f"erpclaw: published manifest is at {published}, installed foundation is {local}. "
-                f"Run 'erpclaw update-foundation --user-confirmed' to reconcile.",
-                file=sys.stderr,
-            )
-        try:
-            os.makedirs(os.path.dirname(last_check), exist_ok=True)
-            with open(last_check, "w") as f:
-                f.write("")
-        except OSError:
-            pass
-    except Exception:
-        pass
 
 
 def _strip_router_flags(args: list[str]) -> list[str]:
@@ -961,11 +881,6 @@ def main():
     # Gate dangerous actions BEFORE any dispatch path
     _gate_dangerous_action(action)
 
-    # Surface a drift reminder if installed version differs from manifest.
-    # Read-only; never modifies files. The user invokes update-foundation
-    # explicitly to apply.
-    _maybe_check_drift_reminder(action)
-
     # Tier 0: Module management actions → module_manager.py
     if action in MODULE_ACTIONS:
         _log_action_call(action, "module_manager", 0)
@@ -1005,8 +920,8 @@ def main():
         print(json.dumps({
             "status": "error",
             "error": f"Unknown action: {action}",
-            "hint": f"This action is provided by module '{suggestion}'. "
-                    f"Install it with: --action install-module --module-name {suggestion}",
+            "hint": f"This action may be provided by module '{suggestion}', "
+                    f"which is not bundled in this air-gapped build.",
             "suggested_module": suggestion,
         }))
     else:

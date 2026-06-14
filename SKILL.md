@@ -4,21 +4,21 @@ version: 4.8.0
 description: >
   AI-native ERP system. Full accounting, invoicing, inventory, purchasing,
   tax, billing, HR, payroll, advanced accounting (ASC 606/842, intercompany, consolidation),
-  and financial reporting (including P&L / trial balance / spend grouped by department, project, cost center, location, or fund). 483 actions across 14 domains, 45 optional expansion modules (user-approved install from GitHub).
+  and financial reporting (including P&L / trial balance / spend grouped by department, project, cost center, location, or fund). 478 actions across 14 domains, 45 bundled expansion modules (activated locally, no network).
   Double-entry GL, immutable audit trail, US GAAP compliant. Licensed under GNU GPL v3 (the marketplace "MIT-0" badge is a ClawHub platform default; the LICENSE.txt in the bundle is GPL v3).
 author: AvanSaber
 homepage: https://github.com/avansaber/erpclaw
 source: https://github.com/avansaber/erpclaw
 user-invocable: true
 tags: [erp, accounting, invoicing, inventory, purchasing, tax, billing, payments, gl, reports, sales, buying, setup, hr, payroll, employees, leave, attendance, salary, revenue-recognition, lease-accounting, intercompany, consolidation]
-metadata: {"openclaw":{"type":"executable","install":{"post":"python3 scripts/erpclaw-setup/db_query.py --action initialize-database"},"requires":{"bins":["python3","git"],"env":[],"optionalEnv":["ERPCLAW_DB_PATH"]},"os":["darwin","linux"]}}
+metadata: {"openclaw":{"type":"executable","install":{"post":"python3 scripts/erpclaw-setup/db_query.py --action initialize-database"},"requires":{"bins":["python3"],"env":[],"optionalEnv":["ERPCLAW_DB_PATH"]},"os":["darwin","linux"]}}
 ---
 
 # erpclaw
 
 **Full-Stack ERP Controller** for ERPClaw. Company setup, chart of accounts, journal entries, payments, tax, financial reports, customers, sales, suppliers, purchasing, inventory, billing, HR, US payroll, advanced accounting (ASC 606/842, intercompany, consolidation), and 45 optional industry modules. Local-first SQLite, double-entry GL, immutable audit trail.
 
-**Security:** Local-first. Parameterized queries. RBAC (PBKDF2). Immutable GL. Sensitive fields encrypted at the column level. Network access limited to `fetch-exchange-rates` (public API) and user-approved `install-module` from `github.com/avansaber/*`.
+**Security:** Local-first. Parameterized queries. RBAC (PBKDF2). Immutable GL. Sensitive fields encrypted at the column level. Network access limited to `fetch-exchange-rates` (public exchange-rate API); modules are bundled and installed locally — this fork is air-gapped with no code sync.
 
 ## System of record (the ERP is authoritative)
 
@@ -44,7 +44,6 @@ When you tell the user what you are about to do or what you just did, describe t
 | `submit-sales-invoice` | "send the invoice" |
 | `submit-payment` | "record the payment" |
 | `restore-database` | "restore from backup" |
-| `install-module` | "install the X module" |
 
 For an action not in the table, derive a friendly form by removing the verb prefix and using the entity in plain English (`record-1099-payment` → "record the 1099 payment").
 
@@ -97,7 +96,7 @@ python3 {baseDir}/scripts/db_query.py --action setup-chart-of-accounts --company
 
 High-impact actions require the `--user-confirmed` flag on every invocation. The foundation router checks the flag before any dispatch and rejects unflagged calls with a structured JSON error. Read-only actions (verbs `list`, `get`, reports) run without the flag.
 
-## All 489 Actions
+## All 484 Actions
 
 ### Setup & Admin (50)
 | Action | Description |
@@ -253,25 +252,22 @@ High-impact actions require the `--user-confirmed` flag on every invocation. The
 | `generate-w2-data` / `generate-nacha-file` / `add-garnishment` / `update-garnishment` / `get-garnishment` / `list-garnishments` | W-2, NACHA, garnishments |
 | `get-amendment-history` | Amendment tracking |
 
-### Module Management & Schema (19)
+### Module Management & Schema (14)
 | Action | Description |
 |--------|-------------|
-| `install-module` / `remove-module` / `update-modules` / `list-modules` / `available-modules` / `search-modules` / `module-status` | Module catalog (install/remove require user approval) |
+| `remove-module` / `list-modules` / `available-modules` / `search-modules` / `module-status` | Module catalog (modules ship bundled and are activated locally; remove requires user approval) |
 | `rebuild-action-cache` / `list-all-actions` / `list-profiles` / `onboard` / `list-industries` | Actions & profiles |
 | `validate-module` / `list-articles` / `build-table-registry` | Constitution + module discovery (read-only) |
 | `schema-plan` / `schema-apply` / `schema-rollback` / `schema-drift` | Schema migration (apply/rollback require user approval) |
 | `regenerate-skill-md` | Regenerate SKILL.md |
-| `update-foundation` / `rollback-foundation` / `verify-trust-root` | Reconcile installed foundation files with the published manifest; reconcile actions require user approval |
 
-> **Foundation reconciliation.** Reconciliation verifies an ed25519 signature on the registry against an embedded public key before trusting any file hash. Two user-invoked actions keep an installed foundation aligned with the published manifest in `module_registry.json`. `update-foundation --user-confirmed` compares each installed file's SHA256 against the signed manifest, and for any drift, replaces the file from the published source after re-verifying the declared hash; a pre-flight verifies all replacements before any rename, so a hash failure leaves the install unchanged. Each replaced file is preserved as `.bak` for one cycle, and `rollback-foundation --user-confirmed` reverts that cycle. `verify-trust-root` prints the embedded key fingerprint for out-of-band verification. A periodic convenience check, suppressed by the marker file `~/.openclaw/erpclaw/.skip_reconcile` or the per-invocation flag `--no-reconcile-check`, may surface a reminder when version drift is present; the user runs `update-foundation` to apply. The router never modifies installed code without an explicit gated invocation. Signature verification is mandatory on the reconciliation path; the only exception is a documented operator recovery path that records to the audit log.
-
-> **Module authoring + variant analysis (developer tooling):** module generation, in-module feature injection, sandboxed test execution, deploy pipeline, variant analysis, gap detection, heartbeat analysis, semantic checks, and the OS-engine status command live in the optional `erpclaw-os-engine` addon (~30 actions, all `os-` prefixed). The addon is GitHub-only and not installed by default. Install via `module_manager.py --action install-module --module-name erpclaw-os-engine`. Foundation does not run module-generation or auto-deploy code paths.
+> **Module authoring + variant analysis (developer tooling):** module generation, in-module feature injection, sandboxed test execution, deploy pipeline, variant analysis, gap detection, heartbeat analysis, semantic checks, and the OS-engine status command live in the optional `erpclaw-os-engine` addon (~30 actions, all `os-` prefixed). The addon is external developer tooling and is not bundled in this air-gapped fork. Foundation does not run module-generation or auto-deploy code paths.
 
 **Always ask the user to confirm before doing any of the following.** Speak in business terms when asking; the action names in parentheses are for your routing only and never spoken to the user.
 
 - Set up a company (`setup-company`)
 - Run onboarding (`onboard`)
-- Install, remove, or update a module (`install-module` / `remove-module` / `update-modules`)
+- Remove a module (`remove-module`)
 - Apply or roll back schema changes (`schema-apply` / `schema-rollback`)
 - Submit, cancel, approve, or reject any document (`submit-*` / `cancel-*` / `approve-*` / `reject-*`)
 - Run consolidation or intercompany elimination (`run-consolidation` / `run-elimination`)
@@ -296,4 +292,4 @@ openclaw cron add --name erpclaw-drip-sends --cron "*/5 * * * *" \
 `process-email-queue` (every 1 minute) drains the email outbox with exponential backoff; `process-drip-sends` (every 5 minutes) advances due drip enrollments. Both are idempotent, so re-running inside an interval will not double-send. Remove a schedule with `openclaw cron remove --name <name>`. SKILL.md `cron:` blocks are decorative and never auto-register — explicit `openclaw cron add` is the only active scheduling path (see CHANGELOG v4.1.0).
 
 ## Technical Details (Tier 3)
-Router: `scripts/db_query.py` -> 14 core domains. Optional modules installed from GitHub (`avansaber/*`) to `~/.openclaw/erpclaw/modules/` (user-approved only). Single SQLite DB (WAL). 188 core tables (688 with modules). Money=TEXT(Decimal), IDs=TEXT(UUID4), GL immutable. Python 3.10+. All network activity limited to: (1) `fetch-exchange-rates`, the public exchange rate API; (2) `install-module`, git clone from `github.com/avansaber/*` only, requires user approval.
+Router: `scripts/db_query.py` -> 14 core domains. Bundled modules activated to `~/.openclaw/erpclaw/modules/` (user-approved only). Single SQLite DB (WAL). 188 core tables (688 with modules). Money=TEXT(Decimal), IDs=TEXT(UUID4), GL immutable. Python 3.10+. All network activity limited to: (1) `fetch-exchange-rates`, the public exchange-rate API. Modules are bundled and installed locally; this fork performs no git clone, no registry fetch, and no foundation reconciliation — it is air-gapped.
