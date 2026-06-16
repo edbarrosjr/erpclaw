@@ -32,6 +32,9 @@
              padding:9px 12px;border-radius:9px;cursor:pointer;font-size:13px;display:flex;align-items:center;gap:9px;}
   nav button:hover{background:var(--panel);color:var(--ink);}
   nav button.active{background:var(--teal);border-color:var(--teal);color:#04231f;font-weight:700;}
+  nav a.nav-link{display:flex;align-items:center;gap:9px;padding:9px 12px;border-radius:9px;color:var(--muted);font-size:13px;text-decoration:none;}
+  nav a.nav-link:hover{background:var(--panel);color:var(--ink);}
+  nav a.nav-link .ext{margin-left:auto;opacity:.55;font-size:11px;}
   nav .nv-ico{width:16px;text-align:center;}
   nav .sep{height:1px;background:var(--line);margin:8px 4px;}
   nav .foot{margin-top:auto;color:var(--muted);font-size:10.5px;line-height:1.5;padding:8px 6px;}
@@ -116,6 +119,9 @@
   <button class="nav-btn" data-v="relatorios"><span class="nv-ico">∑</span> Relatórios</button>
   <div class="sep"></div>
   <button class="nav-btn" data-v="console"><span class="nv-ico">›_</span> Console</button>
+  <div class="sep"></div>
+  <a class="nav-link" href="/docs/catalogo-visual.html" target="_blank" rel="noopener"><span class="nv-ico">▰</span> Catálogo <span class="ext">↗</span></a>
+  <a class="nav-link" href="/docs/abstracoes.html" target="_blank" rel="noopener"><span class="nv-ico">◳</span> Abstrações <span class="ext">↗</span></a>
   <div class="foot">Tudo roteado por<br><code>scripts/db_query.py</code><br>stdlib · offline · localhost</div>
 </nav>
 

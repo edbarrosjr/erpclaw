@@ -24,6 +24,7 @@ import subprocess
 import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import unquote
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
@@ -35,6 +36,19 @@ INDEX_HTML = HERE / "index.html"
 ACTION_RE = re.compile(r"^[a-z][a-z0-9]*(?:-[a-z0-9]+)+$")
 ACTION_TIMEOUT_S = 120
 MAX_BODY = 2 * 1024 * 1024
+
+# Content types for the read-only static routes (/assets, /docs).
+_CTYPES = {
+    ".html": "text/html; charset=utf-8",
+    ".js": "application/javascript; charset=utf-8",
+    ".css": "text/css; charset=utf-8",
+    ".json": "application/json; charset=utf-8",
+    ".md": "text/plain; charset=utf-8",
+    ".txt": "text/plain; charset=utf-8",
+    ".svg": "image/svg+xml", ".png": "image/png",
+    ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+    ".webp": "image/webp", ".gif": "image/gif", ".ico": "image/x-icon",
+}
 
 _ACTION_CACHE: set[str] | None = None
 
@@ -142,6 +156,24 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *a):  # quieter console
         sys.stderr.write("[dashboard] " + (fmt % a) + "\n")
 
+    def _serve_static(self, prefix: str, base: Path) -> bool:
+        """Serve a read-only file under `base`; True if it handled the request.
+
+        Allows sub-paths (e.g. /docs/specs/gl.md) but never escapes `base`:
+        the resolved target must stay inside the resolved base directory.
+        """
+        base = base.resolve()
+        rel = unquote(self.path[len(prefix):].split("?", 1)[0]).lstrip("/")
+        try:
+            target = (base / rel).resolve()
+        except (OSError, ValueError, RuntimeError):
+            return False
+        if target.is_file() and target.is_relative_to(base):
+            self._send(200, target.read_bytes(),
+                       _CTYPES.get(target.suffix.lower(), "application/octet-stream"))
+            return True
+        return False
+
     def do_GET(self) -> None:
         if self.path in ("/", "/index.html"):
             try:
@@ -156,19 +188,12 @@ class Handler(BaseHTTPRequestHandler):
             self._json(200, {"ok": True, "root": str(ROOT), "db_query": DB_QUERY.exists()})
             return
         if self.path.startswith("/assets/"):
-            name = self.path[len("/assets/"):].split("?", 1)[0]
-            if re.fullmatch(r"[A-Za-z0-9._-]+", name or ""):
-                fp = ROOT / "assets" / name
-                if fp.is_file():
-                    ctype = {
-                        ".svg": "image/svg+xml", ".png": "image/png",
-                        ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
-                        ".webp": "image/webp", ".gif": "image/gif",
-                        ".ico": "image/x-icon",
-                    }.get(fp.suffix.lower(), "application/octet-stream")
-                    self._send(200, fp.read_bytes(), ctype)
-                    return
-            self._json(404, {"error": "asset not found"})
+            if not self._serve_static("/assets/", ROOT / "assets"):
+                self._json(404, {"error": "asset not found"})
+            return
+        if self.path.startswith("/docs/"):
+            if not self._serve_static("/docs/", ROOT / "docs"):
+                self._json(404, {"error": "doc not found"})
             return
         self._json(404, {"error": "not found"})
 
