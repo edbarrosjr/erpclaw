@@ -88,6 +88,14 @@
   .spin{display:inline-block;width:13px;height:13px;border:2px solid var(--line);border-top-color:var(--teal);
         border-radius:50%;animation:s .7s linear infinite;vertical-align:-2px;}
   @keyframes s{to{transform:rotate(360deg);}}
+  /* reports */
+  .rep-meta{color:var(--muted);font-size:12px;margin-bottom:10px;}
+  table.rep tfoot th{color:var(--ink);font-size:12.5px;text-transform:none;letter-spacing:0;border-top:2px solid var(--line);}
+  .rep-net{margin-top:14px;padding:11px 15px;border-radius:9px;border:1px solid var(--line);background:var(--panel2);
+           display:flex;justify-content:space-between;align-items:center;font-size:14px;}
+  .rep-net b{font-size:16px;font-variant-numeric:tabular-nums;} .rep-net.pos b{color:var(--teal2);} .rep-net.neg b{color:var(--err);}
+  .bs-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start;}
+  @media(max-width:760px){.bs-grid{grid-template-columns:1fr;}}
 </style>
 </head>
 <body>
@@ -187,7 +195,7 @@
   <!-- RELATORIOS -->
   <section class="view" id="v-relatorios">
     <h2>Relatórios</h2>
-    <div class="lead">Demonstrativos lidos do razão. O balancete sai como tabela; os demais como JSON estruturado (v1).</div>
+    <div class="lead">Demonstrativos lidos do razão, renderizados como tabela: balancete, resultado (P&amp;L) e balanço — este com checagem A = P + PL.</div>
     <div class="tabs">
       <button class="active" data-r="tb" onclick="repTab('tb')">Balancete</button>
       <button data-r="pnl" onclick="repTab('pnl')">Resultado (P&amp;L)</button>
@@ -373,8 +381,8 @@ function repTab(r){
   document.querySelectorAll('.tabs button').forEach(b=>b.classList.toggle('active',b.dataset.r===r));
   const c=$('#rep-controls'); $('#rep-out').innerHTML='';
   if(r==='tb') c.innerHTML=`<div><label>Até a data</label><input type="date" id="r-to" value="${today()}"></div><button class="btn" onclick="runTB()">Gerar balancete</button>`;
-  if(r==='pnl') c.innerHTML=`<div><label>De</label><input type="date" id="r-from" value="${today().slice(0,4)}-01-01"></div><div><label>Até</label><input type="date" id="r-to" value="${today()}"></div><button class="btn" onclick="runRep('profit-and-loss')">Gerar P&amp;L</button>`;
-  if(r==='bs') c.innerHTML=`<div><label>Data-base</label><input type="date" id="r-asof" value="${today()}"></div><button class="btn" onclick="runRep('balance-sheet')">Gerar balanço</button>`;
+  if(r==='pnl') c.innerHTML=`<div><label>De</label><input type="date" id="r-from" value="${today().slice(0,4)}-01-01"></div><div><label>Até</label><input type="date" id="r-to" value="${today()}"></div><button class="btn" onclick="runPnl()">Gerar P&amp;L</button>`;
+  if(r==='bs') c.innerHTML=`<div><label>Data-base</label><input type="date" id="r-asof" value="${today()}"></div><button class="btn" onclick="runBs()">Gerar balanço</button>`;
 }
 async function runTB(){
   if(!STATE.company){ alert('selecione uma empresa'); return; }
@@ -392,14 +400,50 @@ async function runTB(){
       <td class="num">${fmt(r.debit??r.debit_total??0)}</td><td class="num">${fmt(r.credit??r.credit_total??0)}</td></tr>`).join('')}
     </tbody><tfoot><tr><th>Total</th><th class="num">${fmt(td)}</th><th class="num">${fmt(tc)}</th></tr></tfoot></table>`;
 }
-async function runRep(action){
+function secRows(items){
+  if(!items || !items.length) return `<tr><td colspan="2" style="color:var(--muted)">— sem lançamentos —</td></tr>`;
+  return items.map(r=>`<tr><td>${esc(r.account||r.account_id||'')}</td><td class="num">${fmt(r.amount)}</td></tr>`).join('');
+}
+async function runPnl(){
   if(!STATE.company){ alert('selecione uma empresa'); return; }
-  const args={'company-id':STATE.company.id};
-  if($('#r-from')) args['from-date']=$('#r-from').value;
-  if($('#r-to')) args['to-date']=$('#r-to').value;
-  if($('#r-asof')) args['as-of-date']=$('#r-asof').value;
-  $('#rep-out').innerHTML='<span class="spin"></span> gerando…';
-  const res = await api(action,args); $('#rep-out').innerHTML=outHTML(res);
+  const out=$('#rep-out'); out.innerHTML='<span class="spin"></span> gerando…';
+  const res = await api('profit-and-loss',{'company-id':STATE.company.id,'from-date':$('#r-from').value,'to-date':$('#r-to').value});
+  if(!res.ok || !res.parsed){ out.innerHTML=outHTML(res); return; }
+  const d=res.parsed, net=+d.net_income||0;
+  out.innerHTML = `<div class="rep-meta">período ${esc(d.period||'')}</div>
+    <table class="rep"><thead><tr><th>Receitas</th><th class="num">Valor</th></tr></thead>
+      <tbody>${secRows(d.income)}</tbody>
+      <tfoot><tr><th>Total de receitas</th><th class="num">${fmt(d.income_total)}</th></tr></tfoot></table>
+    <table class="rep" style="margin-top:14px"><thead><tr><th>Despesas</th><th class="num">Valor</th></tr></thead>
+      <tbody>${secRows(d.expenses)}</tbody>
+      <tfoot><tr><th>Total de despesas</th><th class="num">${fmt(d.expense_total)}</th></tr></tfoot></table>
+    <div class="rep-net ${net>=0?'pos':'neg'}"><span>Resultado líquido</span><b>${fmt(net)}</b></div>`;
+}
+async function runBs(){
+  if(!STATE.company){ alert('selecione uma empresa'); return; }
+  const out=$('#rep-out'); out.innerHTML='<span class="spin"></span> gerando…';
+  const res = await api('balance-sheet',{'company-id':STATE.company.id,'as-of-date':$('#r-asof').value});
+  if(!res.ok || !res.parsed){ out.innerHTML=outHTML(res); return; }
+  const d=res.parsed;
+  const bal = Math.abs((+d.total_assets||0)-((+d.total_liabilities||0)+(+d.total_equity||0)))<0.005;
+  out.innerHTML = `<div style="display:flex;gap:12px;align-items:center;margin-bottom:12px">
+      <span class="badge ${bal?'ok':'bad'}">${bal?'A = P + PL ✓':'não fecha'}</span>
+      <span class="rep-meta" style="margin:0">em ${esc(d.as_of_date||'')}</span></div>
+    <div class="bs-grid">
+      <table class="rep"><thead><tr><th>Ativos</th><th class="num">Valor</th></tr></thead>
+        <tbody>${secRows(d.assets)}</tbody>
+        <tfoot><tr><th>Total de ativos</th><th class="num">${fmt(d.total_assets)}</th></tr></tfoot></table>
+      <div>
+        <table class="rep"><thead><tr><th>Passivos</th><th class="num">Valor</th></tr></thead>
+          <tbody>${secRows(d.liabilities)}</tbody>
+          <tfoot><tr><th>Total de passivos</th><th class="num">${fmt(d.total_liabilities)}</th></tr></tfoot></table>
+        <table class="rep" style="margin-top:14px"><thead><tr><th>Patrimônio líquido</th><th class="num">Valor</th></tr></thead>
+          <tbody>${secRows(d.equity)}</tbody>
+          <tfoot>
+            <tr><td style="color:var(--muted)">Resultado do exercício (YTD)</td><td class="num" style="color:var(--muted)">${fmt(d.net_income_ytd)}</td></tr>
+            <tr><th>Total de PL</th><th class="num">${fmt(d.total_equity)}</th></tr></tfoot></table>
+      </div>
+    </div>`;
 }
 
 /* ---------- console ---------- */

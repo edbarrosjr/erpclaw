@@ -33,7 +33,7 @@ First time? Open the **Painel** tab → *Inicializar DB* → *Criar empresa* →
 | **Painel** | `get-schema-version`, `list-companies`, `initialize-database`, `setup-company`, `seed-defaults`, `setup-chart-of-accounts` |
 | **Plano de contas** | `list-accounts`, `get-account-balance` |
 | **Lançamento** | `add-journal-entry` → `submit-journal-entry --user-confirmed` (auto-attaches the company default cost center to P&L lines; live debit/credit balance check) |
-| **Relatórios** | `trial-balance` (table), `profit-and-loss`, `balance-sheet` |
+| **Relatórios** | `trial-balance`, `profit-and-loss`, `balance-sheet` — all rendered as tables; the balance sheet carries an A = L + E reconciliation badge |
 | **Console** | any of the ~463 core actions, as `--key value` pairs, with an optional `--user-confirmed` toggle |
 
 ## Design notes
@@ -56,4 +56,5 @@ This is a local operator console for the **core foundation** (the 15 bundled
 domains). It is not the hosted product UI; the full dashboards
 ([erpclaw-web](https://github.com/avansaber/erpclaw-web),
 [webclaw](https://github.com/avansaber/webclaw)) live in their own repos.
-Reports beyond the trial balance render as structured JSON for now (v1).
+The trial balance, P&L, and balance sheet render as tables; other statements
+(e.g. `cash-flow`) are reachable via the **Console** and return JSON.
