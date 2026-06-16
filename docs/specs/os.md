@@ -4,11 +4,11 @@
 
 ## Validação contra a Constituição
 
-**Objetivo.** Valida um módulo contra os 21 artigos da Constituição ERPClaw via análise estática (artigos 1-8, 10-12, 19-21) e execução de testes em sandbox (artigo 9).
+**Objetivo.** Valida um módulo contra os 21 artigos da Constituição Glue via análise estática (artigos 1-8, 10-12, 19-21) e execução de testes em sandbox (artigo 9).
 
 ### `validate-module`
 
-Valida o diretório de um módulo contra a Constituição ERPClaw, retornando aprovação/reprovação por artigo.
+Valida o diretório de um módulo contra a Constituição Glue, retornando aprovação/reprovação por artigo.
 
 | | |
 |---|---|

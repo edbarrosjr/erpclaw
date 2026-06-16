@@ -4,7 +4,7 @@
 
 ## Verificacao de Instalacao
 
-**Objetivo.** Inspeciona quais skills ERPClaw estao instaladas, o estado do banco e a saude da biblioteca compartilhada.
+**Objetivo.** Inspeciona quais skills Glue estao instaladas, o estado do banco e a saude da biblioteca compartilhada.
 
 ### `check-installation`
 

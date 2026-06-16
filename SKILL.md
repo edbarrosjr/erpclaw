@@ -16,13 +16,13 @@ metadata: {"openclaw":{"type":"executable","install":{"post":"python3 scripts/er
 
 # erpclaw
 
-**Full-Stack ERP Controller** for ERPClaw. Company setup, chart of accounts, journal entries, payments, tax, financial reports, customers, sales, suppliers, purchasing, inventory, billing, HR, US payroll, advanced accounting (ASC 606/842, intercompany, consolidation), and 45 optional industry modules. Local-first SQLite, double-entry GL, immutable audit trail.
+**Full-Stack ERP Controller** for Glue. Company setup, chart of accounts, journal entries, payments, tax, financial reports, customers, sales, suppliers, purchasing, inventory, billing, HR, US payroll, advanced accounting (ASC 606/842, intercompany, consolidation), and 45 optional industry modules. Local-first SQLite, double-entry GL, immutable audit trail.
 
 **Security:** Local-first. Parameterized queries. RBAC (PBKDF2). Immutable GL. Sensitive fields encrypted at the column level. Network access limited to `fetch-exchange-rates` (public exchange-rate API); modules are bundled and installed locally — this fork is air-gapped with no code sync.
 
 ## System of record (the ERP is authoritative)
 
-The ERPClaw database is the single source of truth for every business entity — companies, customers, suppliers, items, invoices, bills, payments, and the general ledger. Before answering what exists or acting on an entity, look it up in the ERP and ground your reply in that result:
+The Glue database is the single source of truth for every business entity — companies, customers, suppliers, items, invoices, bills, payments, and the general ledger. Before answering what exists or acting on an entity, look it up in the ERP and ground your reply in that result:
 
 - "Which companies/customers/items do we have?" → query it (`list-companies`, `list-customers`, `list-items`). Never answer from memory, earlier conversations, workspace files, or any other context.
 - When a user names a product loosely or in plural ("20 Brake Pad Sets"), call `resolve-item --name "<their words>"` first; use the single match, or ask the user to choose when `multiple_matches` is true, before invoicing/ordering.
@@ -277,7 +277,7 @@ High-impact actions require the `--user-confirmed` flag on every invocation. The
 
 ## Optional scheduling (background email workers)
 
-ERPClaw never installs cron jobs automatically. Two background workers are meant to run on a schedule once a business turns on email automation. Register them with the OpenClaw cron facility — the same `openclaw cron add` path used for any recurring ERPClaw job (confirm with the user first):
+Glue never installs cron jobs automatically. Two background workers are meant to run on a schedule once a business turns on email automation. Register them with the OpenClaw cron facility — the same `openclaw cron add` path used for any recurring Glue job (confirm with the user first):
 
 ```bash
 # Send queued emails — every 1 minute (erpclaw-alerts: process-email-queue)

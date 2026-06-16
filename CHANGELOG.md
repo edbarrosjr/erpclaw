@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to the ERPClaw foundation skill.
+All notable changes to the Glue foundation skill.
 
 ## [4.9.0] — 2026-06-14
 
@@ -139,12 +139,12 @@ Fix-up release for v4.2.0. Two install-blocking issues caught during cold-instal
 
 ## [4.2.0] — 2026-05-05 (republished 2026-05-10)
 
-License change plus four parser bug fixes in vertical modules. ERPClaw moves from MIT to GNU General Public License v3, retroactively, across the entire codebase (foundation + 48 modules + addons + integrations + website + tooling). Existing copies that were downloaded under MIT retain their MIT rights for that downloaded copy per US copyright law on implied license; new clones, forks, and downloads receive GPL v3 terms. Patent (filed under USPTO provisional) is unchanged and continues to apply.
+License change plus four parser bug fixes in vertical modules. Glue moves from MIT to GNU General Public License v3, retroactively, across the entire codebase (foundation + 48 modules + addons + integrations + website + tooling). Existing copies that were downloaded under MIT retain their MIT rights for that downloaded copy per US copyright law on implied license; new clones, forks, and downloads receive GPL v3 terms. Patent (filed under USPTO provisional) is unchanged and continues to apply.
 
 ### Changed
 - `LICENSE.txt` at every level (48 files) replaced with the canonical GPL v3 text from FSF, prefixed by a short notice and license history.
 - `package.json` `license` field in JS sub-projects updated from `"MIT"` to `"GPL-3.0-only"`.
-- README, STATUS, ARCHITECTURE, ROADMAP, PROJECT_RULES, CLAUDE.md, and module READMEs across `source/` updated to describe ERPClaw as GPL v3 with a license-history line for v4.1.x and earlier.
+- README, STATUS, ARCHITECTURE, ROADMAP, PROJECT_RULES, CLAUDE.md, and module READMEs across `source/` updated to describe Glue as GPL v3 with a license-history line for v4.1.x and earlier.
 - Marketing prose on `erpclaw.ai` updated to say "open source" generically, with explicit "GPL v3" only on license-specific pages.
 - Comparison pages drop "MIT vs. GPL" wedge framing; positioning shifts to architecture (AI-native vs. AI-decorated).
 - `release/scripts/security_audit.py` `check_licence` now accepts either GPL v3 or MIT (the latter retained as legacy-compatible for v4.1.x).
@@ -341,7 +341,7 @@ Eliminate F1 (Rogue Agents / cron) Concern from the ClawHub OpenClaw review by r
 
 Phase 2 audit verification (B1) discovered that OpenClaw's runtime cron daemon does NOT auto-discover SKILL.md `cron:` blocks. Active scheduling requires explicit `openclaw cron add` CLI commands. The `cron:` block in foundation SKILL.md was therefore decorative metadata, not active scheduling — but the ClawHub static analyzer was reading it as scheduled financial mutation and flagging F1 as HIGH/Concern.
 
-Removing the decorative blocks eliminates the trigger at the source without changing operational behavior (no user has ever had ERPClaw crons running automatically from `clawhub install`; users wanting daily jobs always had to run `openclaw cron add` manually).
+Removing the decorative blocks eliminates the trigger at the source without changing operational behavior (no user has ever had Glue crons running automatically from `clawhub install`; users wanting daily jobs always had to run `openclaw cron add` manually).
 
 ### Changed
 - **Foundation `SKILL.md`**: removed the entire `cron:` block (4 entries: process-recurring, generate-recurring-invoices, check-reorder, check-overdue). Replaced "Background automation" prose section with "Optional scheduling" pointer to `openclaw cron add` for users who want daily jobs.

@@ -675,7 +675,7 @@ Public License instead of this License.  But first, please read
 
 ================================================================================
 
-Applied to: ERPClaw
+Applied to: Glue
 
 Copyright (C) 2026 AvanSaber Inc.
 

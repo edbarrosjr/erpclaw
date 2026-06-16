@@ -1,7 +1,7 @@
-# ERPClaw — Painel operável (local dashboard)
+# Glue — Painel operável (local dashboard)
 
 A zero-dependency, **stdlib-only** web dashboard that lets a human *operate* the
-ERPClaw foundation — create companies, seed a chart of accounts, post balanced
+Glue foundation — create companies, seed a chart of accounts, post balanced
 journal entries, read a trial balance — instead of only reading the static
 catalog in [`docs/`](../docs).
 

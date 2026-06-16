@@ -1,4 +1,4 @@
-# Specs funcionais do ERPClaw — núcleo (por ação)
+# Specs funcionais do Glue — núcleo (por ação)
 
 > Spec funcional de **cada ação** do núcleo, agrupada por funcionalidade, gerada a partir do código (`scripts/erpclaw-*/db_query.py`). Visual interativo: [`../catalogo-visual.html`](../catalogo-visual.html) — clique num bloco do núcleo e expanda uma funcionalidade para ver as ações.
 

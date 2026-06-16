@@ -612,7 +612,7 @@ Lista arquivos de backup com tamanho, data e flag de criptografia.
 
 ### `verify-backup`
 
-Valida um arquivo de backup sem restaurar (SQLite válido, schema ERPClaw, integridade).
+Valida um arquivo de backup sem restaurar (SQLite válido, schema Glue, integridade).
 
 | | |
 |---|---|
@@ -632,7 +632,7 @@ Restaura o banco a partir de um backup, com backup de segurança e rollback auto
 | **Saídas** | restored_from, safety_backup, size_bytes, schema_versions, integrity, was_encrypted. |
 | **Regras** | Erro se backup-path ausente/inexistente; cripto exige passphrase; valida schema_version no backup; fecha a conexão atual, cria safety backup, copia backup sobre o DB, roda integrity_check; em qualquer falha faz rollback restaurando o safety backup. |
 | **Efeitos colaterais** | Substitui o arquivo do DB no filesystem; cria safety backup (erpclaw_pre_restore_<ts>.sqlite); ajusta permissões; em falha restaura estado anterior. Não escreve em tabelas via SQL; sem audit_log. |
-| **Pré-condições** | Backup válido ERPClaw; passphrase se criptografado. |
+| **Pré-condições** | Backup válido Glue; passphrase se criptografado. |
 
 ### `cleanup-backups`
 
@@ -652,7 +652,7 @@ Aplica política de retenção (7 diários, 4 semanais, 12 mensais) removendo o 
 
 ### `initialize-database`
 
-Inicializa (ou re-inicializa com --force) todo o schema do banco ERPClaw.
+Inicializa (ou re-inicializa com --force) todo o schema do banco Glue.
 
 | | |
 |---|---|

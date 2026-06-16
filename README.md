@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="assets/logo.svg" alt="ERPClaw" width="120" height="120">
+  <img src="assets/logo.svg" alt="Glue" width="120" height="120">
 </p>
 
-<h1 align="center">ERPClaw</h1>
+<h1 align="center">Glue</h1>
 
 <p align="center">
   <em>The AI-native ERP. Chat with your books.</em>
@@ -19,10 +19,10 @@
 </p>
 
 <p align="center">
-  <img src="assets/demo.svg" alt="ERPClaw demo: add a customer, invoice them, record their payment, and see a P&amp;L by department, all in plain English" width="760">
+  <img src="assets/demo.svg" alt="Glue demo: add a customer, invoice them, record their payment, and see a P&amp;L by department, all in plain English" width="760">
 </p>
 
-**ERPClaw runs your whole business from plain English.** Tell it "invoice Wayne
+**Glue runs your whole business from plain English.** Tell it "invoice Wayne
 Industries for 10 widgets at $100" and it writes the invoice, posts the
 balanced journal entries, and replies with the invoice number. Record a payment,
 close the month, pull a P&L by department, run payroll, the assistant you
@@ -30,7 +30,7 @@ already use does the work and the books stay audit-grade underneath. No forms to
 click through, no screens to learn, no per-seat bill. It is open source, it is
 free forever, and it runs on your own machine so your data never leaves it.
 
-The difference from every other "AI" accounting tool is structural: ERPClaw was
+The difference from every other "AI" accounting tool is structural: Glue was
 built AI-native from the first commit, with the assistant as the primary
 interface and the accounting rules as auditable code. That is not a chat sidebar
 bolted onto a forms app, and it is not something a legacy product can retrofit.
@@ -41,7 +41,7 @@ running the foundation. If you just want the product overview, see
 
 ## Quick start
 
-ERPClaw is one product. You install it once, then describe your business and it
+Glue is one product. You install it once, then describe your business and it
 sets itself up.
 
 ```
@@ -59,13 +59,13 @@ talk to your AI assistant:
 Industry coverage comes the same way, with no second install command:
 
 ```
-"I'm a school"           → ERPClaw pulls the education vertical and creates its tables
+"I'm a school"           → Glue pulls the education vertical and creates its tables
 "I need manufacturing"   → pulls Manufacturing, Projects, Assets, Quality, Support
 "Set me up for a clinic" → pulls clinical practice management
 ```
 
 Every vertical is bundled with the install. When you ask for an industry,
-ERPClaw activates the bundled module locally and creates its tables — nothing
+Glue activates the bundled module locally and creates its tables — nothing
 is downloaded. You never run another install command and never have to know
 what a module is.
 
@@ -127,7 +127,7 @@ fork. The foundation runs no module-generation or auto-deploy code paths.
 
 <sub>Current build:
 <!-- SYNC:facts:start -->
-ERPClaw v4.8.0 | 46 modules (46 active + 0 preview) | 3,164 actions
+Glue v4.8.0 | 46 modules (46 active + 0 preview) | 3,164 actions
 <!-- SYNC:facts:end -->
 </sub>
 
@@ -135,11 +135,11 @@ ERPClaw v4.8.0 | 46 modules (46 active + 0 preview) | 3,164 actions
 
 The primary interface is the AI assistant, but two optional dashboards exist:
 
-- **[ERPClaw Web](https://github.com/avansaber/erpclaw-web)**: purpose-built
+- **[Glue Web](https://github.com/avansaber/erpclaw-web)**: purpose-built
   dashboard with live data tables, action execution, AI chat, and real-time
   updates.
 - **[WebClaw](https://github.com/avansaber/webclaw)**: universal OpenClaw
-  dashboard that reads ERPClaw's SKILL.md and generates forms, tables, and
+  dashboard that reads Glue's SKILL.md and generates forms, tables, and
   charts with zero per-skill setup (`clawhub install webclaw`).
 
 ## Links

@@ -1,4 +1,4 @@
-# Funcionalidades do ERPClaw por módulo
+# Funcionalidades do Glue por módulo
 
 > Mapa do que o ERP já faz, verificado contra o código (`scripts/*/db_query.py`) e o catálogo (`scripts/module_registry.json`).
 >
