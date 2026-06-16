@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ERPClaw — Painel operável</title>
+<style>
+  :root{ --teal:#0d9488; --teal2:#14b8a6; --bg:#0b1220; --panel:#111a2e; --panel2:#0e1729;
+         --ink:#e6edf6; --muted:#8aa0b8; --line:#24344f; --ok:#0d9488; --err:#f87171; --warn:#ea580c; }
+  *{box-sizing:border-box;}
+  html,body{height:100%;margin:0;}
+  body{background:var(--bg);color:var(--ink);
+       font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+       display:grid;grid-template-columns:212px 1fr;grid-template-rows:54px 1fr;height:100vh;}
+  code,.mono{font-family:ui-monospace,Menlo,Consolas,monospace;}
+  /* top bar */
+  header{grid-column:1/3;display:flex;align-items:center;gap:14px;padding:0 18px;
+         border-bottom:1px solid var(--line);background:var(--panel2);}
+  header .brand{font-weight:700;font-size:15px;display:flex;align-items:center;gap:9px;}
+  header .brand .logo{width:18px;height:18px;border-radius:5px;background:linear-gradient(135deg,var(--teal),#2563eb);}
+  header .spacer{flex:1;}
+  .pill{font-size:11.5px;border:1px solid var(--line);border-radius:20px;padding:3px 11px;color:var(--muted);
+        display:inline-flex;align-items:center;gap:6px;background:var(--panel);}
+  .pill .dot{width:8px;height:8px;border-radius:50%;background:var(--muted);}
+  .pill.ok .dot{background:var(--ok);} .pill.bad .dot{background:var(--err);}
+  select,input,button{font-family:inherit;}
+  header select{background:var(--panel);color:var(--ink);border:1px solid var(--line);
+                border-radius:8px;padding:6px 10px;font-size:12.5px;max-width:240px;}
+  /* sidebar */
+  nav{border-right:1px solid var(--line);background:var(--panel2);padding:12px 10px;display:flex;flex-direction:column;gap:3px;}
+  nav button{background:transparent;color:var(--muted);border:1px solid transparent;text-align:left;
+             padding:9px 12px;border-radius:9px;cursor:pointer;font-size:13px;display:flex;align-items:center;gap:9px;}
+  nav button:hover{background:var(--panel);color:var(--ink);}
+  nav button.active{background:var(--teal);border-color:var(--teal);color:#04231f;font-weight:700;}
+  nav .nv-ico{width:16px;text-align:center;}
+  nav .sep{height:1px;background:var(--line);margin:8px 4px;}
+  nav .foot{margin-top:auto;color:var(--muted);font-size:10.5px;line-height:1.5;padding:8px 6px;}
+  /* main */
+  main{overflow:auto;padding:20px 24px 40px;}
+  .view{display:none;} .view.active{display:block;}
+  h2{font-size:17px;margin:0 0 3px;} .lead{color:var(--muted);font-size:12.5px;margin:0 0 16px;max-width:880px;}
+  .grid{display:grid;gap:14px;}
+  .cards{grid-template-columns:repeat(auto-fill,minmax(190px,1fr));}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:11px;padding:14px 15px;}
+  .card h3{margin:0 0 8px;font-size:12px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.5px;}
+  .card .big{font-size:26px;font-weight:700;font-variant-numeric:tabular-nums;}
+  .card .sm{font-size:12px;color:var(--muted);margin-top:3px;}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:11px;padding:16px 18px;margin-bottom:16px;}
+  .panel h3{margin:0 0 12px;font-size:14px;}
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;}
+  label{font-size:11.5px;color:var(--muted);display:block;margin-bottom:4px;}
+  input[type=text],input[type=date],input[type=number],select.fld{background:var(--panel2);color:var(--ink);
+    border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:13px;min-width:120px;}
+  input:focus,select:focus{outline:none;border-color:var(--teal);}
+  button.btn{background:var(--teal);color:#04231f;border:1px solid var(--teal);border-radius:8px;
+             padding:8px 15px;font-size:13px;font-weight:600;cursor:pointer;}
+  button.btn:hover{background:var(--teal2);}
+  button.btn.ghost{background:transparent;color:var(--ink);border-color:var(--line);font-weight:500;}
+  button.btn.ghost:hover{background:var(--panel2);}
+  button.btn.sm{padding:5px 10px;font-size:12px;}
+  button.btn:disabled{opacity:.5;cursor:not-allowed;}
+  table{width:100%;border-collapse:collapse;font-size:12.5px;}
+  th,td{text-align:left;padding:7px 10px;border-bottom:1px solid var(--line);}
+  th{color:var(--muted);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.4px;}
+  td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;}
+  tr:hover td{background:var(--panel2);}
+  .tag{font-size:10.5px;border-radius:6px;padding:1px 7px;border:1px solid var(--line);color:var(--muted);}
+  .badge{font-size:11px;font-weight:700;border-radius:7px;padding:3px 10px;}
+  .badge.ok{background:rgba(13,148,136,.18);color:var(--teal2);border:1px solid var(--teal);}
+  .badge.bad{background:rgba(248,113,113,.14);color:var(--err);border:1px solid var(--err);}
+  .out{margin-top:12px;border:1px solid var(--line);border-radius:9px;overflow:hidden;}
+  .out .out-h{display:flex;align-items:center;gap:8px;padding:7px 12px;font-size:12px;background:var(--panel2);}
+  .out .out-h .st{font-weight:700;} .out .out-h .st.ok{color:var(--teal2);} .out .out-h .st.bad{color:var(--err);}
+  pre{margin:0;padding:12px;font-size:11.5px;line-height:1.5;overflow:auto;max-height:340px;color:#cfe0f2;background:#0b1220;}
+  pre.err{color:#fca5a5;}
+  .hint{color:var(--muted);font-size:11.5px;margin-top:6px;}
+  .je-line{display:grid;grid-template-columns:1fr 120px 120px 30px;gap:8px;margin-bottom:8px;align-items:center;}
+  .je-head{display:grid;grid-template-columns:1fr 120px 120px 30px;gap:8px;color:var(--muted);font-size:11px;
+           text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px;}
+  .je-tot{display:flex;gap:18px;align-items:center;margin-top:10px;font-size:13px;font-variant-numeric:tabular-nums;}
+  .x{background:transparent;border:none;color:var(--muted);cursor:pointer;font-size:15px;}
+  .x:hover{color:var(--err);}
+  .arg-row{display:grid;grid-template-columns:200px 1fr 30px;gap:8px;margin-bottom:7px;}
+  .tabs{display:flex;gap:7px;margin-bottom:14px;flex-wrap:wrap;}
+  .tabs button{background:var(--panel);border:1px solid var(--line);color:var(--ink);border-radius:8px;
+               padding:7px 13px;font-size:12.5px;cursor:pointer;}
+  .tabs button.active{background:var(--teal);border-color:var(--teal);color:#04231f;font-weight:700;}
+  .spin{display:inline-block;width:13px;height:13px;border:2px solid var(--line);border-top-color:var(--teal);
+        border-radius:50%;animation:s .7s linear infinite;vertical-align:-2px;}
+  @keyframes s{to{transform:rotate(360deg);}}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand"><span class="logo"></span> ERPClaw <span style="color:var(--muted);font-weight:400;font-size:12px">· painel operável</span></div>
+  <div class="spacer"></div>
+  <span id="db-pill" class="pill"><span class="dot"></span><span id="db-txt">DB: verificando…</span></span>
+  <label style="margin:0;display:flex;align-items:center;gap:7px;color:var(--muted);font-size:12px">Empresa
+    <select id="company-sel"><option>—</option></select>
+  </label>
+  <button class="btn ghost sm" onclick="boot()">↻</button>
+</header>
+
+<nav>
+  <button class="nav-btn active" data-v="painel"><span class="nv-ico">▦</span> Painel</button>
+  <button class="nav-btn" data-v="contas"><span class="nv-ico">▤</span> Plano de contas</button>
+  <button class="nav-btn" data-v="lancamento"><span class="nv-ico">⇅</span> Lançamento</button>
+  <button class="nav-btn" data-v="relatorios"><span class="nv-ico">∑</span> Relatórios</button>
+  <div class="sep"></div>
+  <button class="nav-btn" data-v="console"><span class="nv-ico">›_</span> Console</button>
+  <div class="foot">Tudo roteado por<br><code>scripts/db_query.py</code><br>stdlib · offline · localhost</div>
+</nav>
+
+<main>
+  <!-- PAINEL -->
+  <section class="view active" id="v-painel">
+    <h2>Painel</h2>
+    <div class="lead">Estado do sistema e setup. Cada botão chama uma ação real do router — o mesmo caminho que o assistente usa.</div>
+    <div class="grid cards" style="margin-bottom:16px">
+      <div class="card"><h3>Banco de dados</h3><div class="big" id="c-db">—</div><div class="sm" id="c-db-sm">schema</div></div>
+      <div class="card"><h3>Empresas</h3><div class="big" id="c-co">—</div><div class="sm">cadastradas</div></div>
+      <div class="card"><h3>Contas</h3><div class="big" id="c-acc">—</div><div class="sm">plano de contas</div></div>
+      <div class="card"><h3>Lançamentos GL</h3><div class="big" id="c-gl">—</div><div class="sm">linhas no razão</div></div>
+    </div>
+
+    <div class="panel">
+      <h3>Setup rápido</h3>
+      <div class="row">
+        <button class="btn ghost" onclick="run('initialize-database',{},false,'painel')">Inicializar DB</button>
+        <button class="btn ghost" onclick="run('seed-defaults',{},false,'painel')">Semear defaults</button>
+        <button class="btn ghost" onclick="seedCoa()">Semear plano de contas (US GAAP)</button>
+      </div>
+      <div class="hint">Inicializar é idempotente. O plano de contas usa a empresa selecionada.</div>
+    </div>
+
+    <div class="panel">
+      <h3>Criar empresa</h3>
+      <div class="row">
+        <div><label>Nome</label><input type="text" id="co-name" placeholder="Sunrise Goods"></div>
+        <div><label>Moeda</label><input type="text" id="co-cur" value="USD" style="width:90px"></div>
+        <div><label>País</label><input type="text" id="co-country" value="United States"></div>
+        <button class="btn" onclick="createCompany()">Criar empresa</button>
+      </div>
+    </div>
+    <div id="out-painel"></div>
+  </section>
+
+  <!-- CONTAS -->
+  <section class="view" id="v-contas">
+    <h2>Plano de contas</h2>
+    <div class="lead">Contas da empresa selecionada. Clique em <b>saldo</b> numa conta-folha para consultar <code>get-account-balance</code>.</div>
+    <div class="row" style="margin-bottom:12px">
+      <button class="btn ghost" onclick="loadAccounts(true)">↻ Recarregar</button>
+      <button class="btn ghost" onclick="seedCoa()">Semear plano de contas</button>
+      <input type="text" id="acc-filter" placeholder="filtrar por nome/número/tipo…" oninput="renderAccounts()" style="flex:1;min-width:200px">
+    </div>
+    <div class="panel" style="padding:0;overflow:hidden">
+      <table><thead><tr><th style="width:80px">Nº</th><th>Conta</th><th>Tipo</th><th>Raiz</th><th class="num">Saldo</th></tr></thead>
+      <tbody id="acc-body"><tr><td colspan="5" style="color:var(--muted)">Carregando…</td></tr></tbody></table>
+    </div>
+    <div id="out-contas"></div>
+  </section>
+
+  <!-- LANCAMENTO -->
+  <section class="view" id="v-lancamento">
+    <h2>Lançamento contábil (JE)</h2>
+    <div class="lead">Monta um lançamento balanceado, posta em rascunho (<code>add-journal-entry</code>) e submete ao razão (<code>submit-journal-entry --user-confirmed</code>). Centro de custo é anexado automaticamente a contas de resultado.</div>
+    <div class="panel">
+      <div class="row" style="margin-bottom:14px">
+        <div><label>Data</label><input type="date" id="je-date"></div>
+        <div style="flex:1"><label>Memo (opcional)</label><input type="text" id="je-memo" placeholder="ex.: venda à vista" style="width:100%"></div>
+      </div>
+      <div class="je-head"><div>Conta</div><div>Débito</div><div>Crédito</div><div></div></div>
+      <div id="je-lines"></div>
+      <button class="btn ghost sm" onclick="addLine()">+ linha</button>
+      <div class="je-tot">
+        <span>Débito: <b id="je-td" class="mono">0.00</b></span>
+        <span>Crédito: <b id="je-tc" class="mono">0.00</b></span>
+        <span id="je-bal" class="badge bad">diferença 0.00</span>
+        <span style="flex:1"></span>
+        <button class="btn" id="je-post" onclick="postJE()" disabled>Lançar e submeter</button>
+      </div>
+    </div>
+    <div id="out-lancamento"></div>
+  </section>
+
+  <!-- RELATORIOS -->
+  <section class="view" id="v-relatorios">
+    <h2>Relatórios</h2>
+    <div class="lead">Demonstrativos lidos do razão. O balancete sai como tabela; os demais como JSON estruturado (v1).</div>
+    <div class="tabs">
+      <button class="active" data-r="tb" onclick="repTab('tb')">Balancete</button>
+      <button data-r="pnl" onclick="repTab('pnl')">Resultado (P&amp;L)</button>
+      <button data-r="bs" onclick="repTab('bs')">Balanço</button>
+    </div>
+    <div class="panel">
+      <div class="row" id="rep-controls"></div>
+      <div id="rep-out" style="margin-top:14px"></div>
+    </div>
+  </section>
+
+  <!-- CONSOLE -->
+  <section class="view" id="v-console">
+    <h2>Console de ação</h2>
+    <div class="lead">Executa qualquer uma das <b id="act-count">…</b> ações do núcleo. Argumentos como pares <code>--chave valor</code>. Marque alto impacto para anexar <code>--user-confirmed</code>.</div>
+    <div class="panel">
+      <div class="row" style="margin-bottom:12px">
+        <div style="flex:1"><label>Ação</label>
+          <input type="text" id="con-action" list="actions-dl" placeholder="ex.: list-accounts" style="width:100%">
+          <datalist id="actions-dl"></datalist>
+        </div>
+        <div><label>&nbsp;</label><label style="display:flex;align-items:center;gap:7px;color:var(--ink);font-size:12.5px;margin:0">
+          <input type="checkbox" id="con-confirm"> alto impacto</label></div>
+      </div>
+      <label>Argumentos</label>
+      <div id="con-args"></div>
+      <button class="btn ghost sm" onclick="addArg()">+ argumento</button>
+      <div style="margin-top:12px"><button class="btn" onclick="runConsole()">Executar</button>
+        <button class="btn ghost" onclick="fillCompanyArg()">+ company-id atual</button></div>
+    </div>
+    <div id="out-console"></div>
+  </section>
+</main>
+
+<script>
+const $ = s => document.querySelector(s);
+const fmt = n => (isNaN(+n)?'0.00':(+n).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}));
+const esc = s => String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+const STATE = { company:null, companies:[], accounts:[], actions:[] };
+
+async function api(action, args={}, confirm=false){
+  const r = await fetch('/api/action',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({action,args,confirm})});
+  return r.json();
+}
+function outHTML(res){
+  const ok = res.ok;
+  const body = res.parsed!=null ? JSON.stringify(res.parsed,null,2) : (res.stdout||res.error||'(sem saída)');
+  const stderr = (res.stderr||'').trim();
+  return `<div class="out"><div class="out-h"><span class="st ${ok?'ok':'bad'}">${ok?'✓ ok':'✗ erro'}</span>
+    <span style="color:var(--muted)">${esc(res.action||'')} · rc=${res.returncode??'—'}</span></div>
+    <pre class="${ok?'':'err'}">${esc(body)}</pre>
+    ${stderr?`<pre class="err" style="border-top:1px solid var(--line)">stderr: ${esc(stderr)}</pre>`:''}</div>`;
+}
+async function run(action,args,confirm,where){
+  const el = $('#out-'+where); el.innerHTML='<div class="out"><pre><span class="spin"></span> executando '+esc(action)+'…</pre></div>';
+  const res = await api(action,args,confirm); el.innerHTML = outHTML(res); await refreshCounters(); return res;
+}
+
+/* ---------- boot ---------- */
+async function boot(){
+  // DB health
+  const v = await api('get-schema-version');
+  const pill=$('#db-pill');
+  if(v.ok){ pill.className='pill ok'; $('#db-txt').textContent='DB ok · schema v'+(v.parsed?.version??'?'); }
+  else { pill.className='pill bad'; $('#db-txt').textContent='DB não inicializado'; }
+  // companies
+  const c = await api('list-companies');
+  STATE.companies = (c.parsed && c.parsed.companies) || [];
+  const sel=$('#company-sel'); sel.innerHTML='';
+  if(STATE.companies.length===0){ sel.innerHTML='<option value="">(nenhuma)</option>'; STATE.company=null; }
+  STATE.companies.forEach(co=>{ const o=document.createElement('option'); o.value=co.id; o.textContent=co.name+' ('+co.abbr+')'; sel.appendChild(o); });
+  if(STATE.companies.length){ STATE.company = STATE.companies[0]; sel.value=STATE.company.id; }
+  sel.onchange=()=>{ STATE.company = STATE.companies.find(x=>x.id===sel.value)||null; STATE.accounts=[]; refreshCounters(); if($('#v-contas').classList.contains('active')) loadAccounts(); buildJELines(); };
+  // actions for console
+  const a = await fetch('/api/actions').then(r=>r.json());
+  STATE.actions = a.actions||[]; $('#act-count').textContent = STATE.actions.length;
+  $('#actions-dl').innerHTML = STATE.actions.map(x=>`<option value="${esc(x)}">`).join('');
+  await refreshCounters();
+}
+async function refreshCounters(){
+  const co=STATE.companies.length; $('#c-co').textContent=co;
+  const v = await api('get-schema-version'); $('#c-db').textContent = v.ok?('v'+(v.parsed?.version??'?')):'—';
+  $('#c-db-sm').textContent = v.ok?'inicializado':'não inicializado';
+  if(STATE.company){
+    const acc = await api('list-accounts',{'company-id':STATE.company.id,limit:1});
+    $('#c-acc').textContent = (acc.parsed && acc.parsed.total_count)??'—';
+    const gl = await api('general-ledger',{'company-id':STATE.company.id,'from-date':'1900-01-01','to-date':'2999-12-31',limit:1});
+    $('#c-gl').textContent = gl.ok ? ((gl.parsed && (gl.parsed.total_count ?? (gl.parsed.entries||gl.parsed.rows||[]).length)) ?? '0') : '—';
+  } else { $('#c-acc').textContent='—'; $('#c-gl').textContent='—'; }
+}
+
+/* ---------- setup helpers ---------- */
+async function createCompany(){
+  const name=$('#co-name').value.trim(); if(!name){ alert('informe o nome'); return; }
+  const res = await run('setup-company',{name,currency:$('#co-cur').value.trim()||'USD',country:$('#co-country').value.trim()||'United States'},false,'painel');
+  if(res.ok){ await boot(); }
+}
+async function seedCoa(){
+  if(!STATE.company){ alert('selecione/crie uma empresa primeiro'); return; }
+  const where = $('#v-contas').classList.contains('active')?'contas':'painel';
+  const res = await run('setup-chart-of-accounts',{'company-id':STATE.company.id},false,where);
+  if(res.ok && where==='contas'){ STATE.accounts=[]; loadAccounts(true); }
+}
+
+/* ---------- accounts ---------- */
+async function loadAccounts(force){
+  if(!STATE.company){ $('#acc-body').innerHTML='<tr><td colspan="5" style="color:var(--muted)">Selecione uma empresa.</td></tr>'; return; }
+  if(STATE.accounts.length && !force){ renderAccounts(); return; }
+  $('#acc-body').innerHTML='<tr><td colspan="5"><span class="spin"></span> carregando…</td></tr>';
+  const res = await api('list-accounts',{'company-id':STATE.company.id,limit:500});
+  STATE.accounts = (res.parsed && res.parsed.accounts) || [];
+  renderAccounts();
+}
+function renderAccounts(){
+  const f = ($('#acc-filter').value||'').toLowerCase();
+  const rows = STATE.accounts.filter(a=>!f || (`${a.account_number} ${a.name} ${a.account_type||''}`).toLowerCase().includes(f));
+  if(!rows.length){ $('#acc-body').innerHTML='<tr><td colspan="5" style="color:var(--muted)">Nenhuma conta. Use “Semear plano de contas”.</td></tr>'; return; }
+  $('#acc-body').innerHTML = rows.map(a=>`<tr>
+    <td class="mono">${esc(a.account_number||'')}</td>
+    <td>${a.is_group?'<b>':''}${esc(a.name)}${a.is_group?'</b>':''}</td>
+    <td>${a.account_type?`<span class="tag">${esc(a.account_type)}</span>`:''}</td>
+    <td style="color:var(--muted)">${esc(a.root_type||'')}</td>
+    <td class="num">${a.is_group?'':`<button class="btn ghost sm" onclick="acctBal('${a.id}')">saldo</button> <span id="bal-${a.id}" class="mono"></span>`}</td>
+  </tr>`).join('');
+}
+async function acctBal(id){
+  const span=$('#bal-'+id); span.innerHTML='<span class="spin"></span>';
+  const res = await api('get-account-balance',{'account-id':id,'company-id':STATE.company.id});
+  const b = res.parsed && (res.parsed.balance ?? res.parsed.account_balance ?? res.parsed.closing_balance);
+  span.textContent = res.ok && b!=null ? fmt(b) : '—';
+}
+
+/* ---------- journal entry ---------- */
+function leafAccounts(){ return STATE.accounts.filter(a=>!a.is_group && !a.disabled); }
+const PL_TYPES = new Set(['income','revenue','expense','cost_of_goods_sold']);
+function accOption(a){ return `<option value="${a.id}">${esc((a.account_number?a.account_number+' · ':'')+a.name)}${a.account_type?' ['+a.account_type+']':''}</option>`; }
+function lineRow(){
+  const opts = leafAccounts().map(accOption).join('');
+  const div=document.createElement('div'); div.className='je-line';
+  div.innerHTML=`<select class="fld je-acc"><option value="">— conta —</option>${opts}</select>
+    <input type="number" step="0.01" class="je-d" placeholder="0.00" oninput="jeCalc()">
+    <input type="number" step="0.01" class="je-c" placeholder="0.00" oninput="jeCalc()">
+    <button class="x" onclick="this.parentElement.remove();jeCalc()">✕</button>`;
+  return div;
+}
+function addLine(){ $('#je-lines').appendChild(lineRow()); jeCalc(); }
+function buildJELines(){ const box=$('#je-lines'); if(!box) return; box.innerHTML=''; box.appendChild(lineRow()); box.appendChild(lineRow()); jeCalc(); }
+function jeCalc(){
+  let td=0,tc=0;
+  document.querySelectorAll('#je-lines .je-line').forEach(l=>{ td+=+l.querySelector('.je-d').value||0; tc+=+l.querySelector('.je-c').value||0; });
+  $('#je-td').textContent=fmt(td); $('#je-tc').textContent=fmt(tc);
+  const diff=Math.round((td-tc)*100)/100;
+  const bal=$('#je-bal'); const ok = diff===0 && td>0;
+  bal.className='badge '+(ok?'ok':'bad'); bal.textContent = ok?'balanceado ✓':('diferença '+fmt(diff));
+  $('#je-post').disabled = !ok || !STATE.company;
+}
+async function postJE(){
+  const accById = Object.fromEntries(STATE.accounts.map(a=>[a.id,a]));
+  const lines=[];
+  for(const l of document.querySelectorAll('#je-lines .je-line')){
+    const id=l.querySelector('.je-acc').value; const d=+l.querySelector('.je-d').value||0; const c=+l.querySelector('.je-c').value||0;
+    if(!id || (d===0&&c===0)) continue;
+    const line={account_id:id,debit:d.toFixed(2),credit:c.toFixed(2)};
+    if(PL_TYPES.has(accById[id]?.account_type) && STATE.company.default_cost_center_id) line.cost_center_id=STATE.company.default_cost_center_id;
+    lines.push(line);
+  }
+  if(lines.length<2){ alert('preencha ao menos 2 linhas com conta e valor'); return; }
+  const where='lancamento'; const el=$('#out-'+where);
+  el.innerHTML='<div class="out"><pre><span class="spin"></span> add-journal-entry…</pre></div>';
+  const add = await api('add-journal-entry',{'company-id':STATE.company.id,'posting-date':$('#je-date').value,'user-remark':$('#je-memo').value||'',lines:JSON.stringify(lines)});
+  if(!add.ok){ el.innerHTML=outHTML(add); return; }
+  const jeid = add.parsed.journal_entry_id;
+  el.innerHTML='<div class="out"><pre><span class="spin"></span> rascunho '+esc(jeid)+' criado, submetendo…</pre></div>';
+  const sub = await api('submit-journal-entry',{'journal-entry-id':jeid,'company-id':STATE.company.id},true);
+  el.innerHTML = `<div style="margin-bottom:8px;color:var(--muted);font-size:12px">add → <code>${esc(jeid)}</code> (${esc(add.parsed.naming_series||'')})</div>`+outHTML(sub);
+  if(sub.ok){ buildJELines(); await refreshCounters(); }
+}
+
+/* ---------- reports ---------- */
+const today = ()=>new Date().toISOString().slice(0,10);
+function repTab(r){
+  document.querySelectorAll('.tabs button').forEach(b=>b.classList.toggle('active',b.dataset.r===r));
+  const c=$('#rep-controls'); $('#rep-out').innerHTML='';
+  if(r==='tb') c.innerHTML=`<div><label>Até a data</label><input type="date" id="r-to" value="${today()}"></div><button class="btn" onclick="runTB()">Gerar balancete</button>`;
+  if(r==='pnl') c.innerHTML=`<div><label>De</label><input type="date" id="r-from" value="${today().slice(0,4)}-01-01"></div><div><label>Até</label><input type="date" id="r-to" value="${today()}"></div><button class="btn" onclick="runRep('profit-and-loss')">Gerar P&amp;L</button>`;
+  if(r==='bs') c.innerHTML=`<div><label>Data-base</label><input type="date" id="r-asof" value="${today()}"></div><button class="btn" onclick="runRep('balance-sheet')">Gerar balanço</button>`;
+}
+async function runTB(){
+  if(!STATE.company){ alert('selecione uma empresa'); return; }
+  const out=$('#rep-out'); out.innerHTML='<span class="spin"></span> gerando…';
+  const res = await api('trial-balance',{'company-id':STATE.company.id,'to-date':$('#r-to').value});
+  if(!res.ok){ out.innerHTML=outHTML(res); return; }
+  const d=res.parsed; const rows=d.rows||d.accounts||d.entries||[];
+  const td=d.total_debit??d.total_debits, tc=d.total_credit??d.total_credits;
+  const balanced = (d.is_balanced!=null)?d.is_balanced:(Math.abs((+td||0)-(+tc||0))<0.005);
+  out.innerHTML = `<div style="display:flex;align-items:center;gap:12px;margin-bottom:10px">
+      <span class="badge ${balanced?'ok':'bad'}">${balanced?'balanceado ✓':'desbalanceado'}</span>
+      <span style="color:var(--muted);font-size:12px">débito ${fmt(td)} · crédito ${fmt(tc)} · ${rows.length} contas</span></div>
+    <table><thead><tr><th>Conta</th><th class="num">Débito</th><th class="num">Crédito</th></tr></thead><tbody>
+    ${rows.map(r=>`<tr><td>${esc(r.account_name||r.account||r.name||r.account_id||'')}</td>
+      <td class="num">${fmt(r.debit??r.debit_total??0)}</td><td class="num">${fmt(r.credit??r.credit_total??0)}</td></tr>`).join('')}
+    </tbody><tfoot><tr><th>Total</th><th class="num">${fmt(td)}</th><th class="num">${fmt(tc)}</th></tr></tfoot></table>`;
+}
+async function runRep(action){
+  if(!STATE.company){ alert('selecione uma empresa'); return; }
+  const args={'company-id':STATE.company.id};
+  if($('#r-from')) args['from-date']=$('#r-from').value;
+  if($('#r-to')) args['to-date']=$('#r-to').value;
+  if($('#r-asof')) args['as-of-date']=$('#r-asof').value;
+  $('#rep-out').innerHTML='<span class="spin"></span> gerando…';
+  const res = await api(action,args); $('#rep-out').innerHTML=outHTML(res);
+}
+
+/* ---------- console ---------- */
+function argRow(k='',v=''){
+  const d=document.createElement('div'); d.className='arg-row';
+  d.innerHTML=`<input type="text" placeholder="--chave (sem traços)" value="${esc(k)}" class="ak">
+    <input type="text" placeholder="valor" value="${esc(v)}" class="av">
+    <button class="x" onclick="this.parentElement.remove()">✕</button>`;
+  return d;
+}
+function addArg(k,v){ $('#con-args').appendChild(argRow(k,v)); }
+function fillCompanyArg(){ if(STATE.company) addArg('company-id',STATE.company.id); }
+async function runConsole(){
+  const action=$('#con-action').value.trim(); if(!action){ alert('informe a ação'); return; }
+  const args={}; document.querySelectorAll('#con-args .arg-row').forEach(r=>{ const k=r.querySelector('.ak').value.trim(); const v=r.querySelector('.av').value; if(k) args[k]=v; });
+  $('#out-console').innerHTML='<div class="out"><pre><span class="spin"></span> executando…</pre></div>';
+  const res=await api(action,args,$('#con-confirm').checked); $('#out-console').innerHTML=outHTML(res);
+}
+
+/* ---------- nav ---------- */
+document.querySelectorAll('.nav-btn').forEach(b=>b.onclick=()=>{
+  document.querySelectorAll('.nav-btn').forEach(x=>x.classList.remove('active')); b.classList.add('active');
+  const v=b.dataset.v; document.querySelectorAll('.view').forEach(s=>s.classList.remove('active')); $('#v-'+v).classList.add('active');
+  if(v==='contas') loadAccounts();
+  if(v==='lancamento'){ if(!STATE.accounts.length) loadAccounts().then(buildJELines); else buildJELines(); }
+});
+
+/* init */
+$('#je-date').value = today();
+repTab('tb'); addArg();
+boot();
+</script>
+</body>
+</html>
