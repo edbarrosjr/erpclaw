@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 384 120" fill="none" role="img" aria-label="Glue">
+  <!-- connector / merge-arrow mark: two streams glued into one, moving forward -->
+  <g fill="#ffffff">
+    <circle cx="17" cy="39" r="7.5"/>
+    <circle cx="17" cy="81" r="7.5"/>
+  </g>
+  <g stroke="#ffffff" stroke-width="9" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M17 39 L59 60"/>
+    <path d="M17 81 L59 60"/>
+    <path d="M50 60 L86 60"/>
+  </g>
+  <path d="M80 43 L106 60 L80 77 Z" fill="#ffffff"/>
+  <!-- wordmark -->
+  <text x="132" y="85" font-family="'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif"
+        font-size="76" font-weight="700" letter-spacing="-2.5" fill="#ffffff">Glue</text>
+</svg>

@@ -17,7 +17,7 @@
   header{grid-column:1/3;display:flex;align-items:center;gap:14px;padding:0 18px;
          border-bottom:1px solid var(--line);background:var(--panel2);}
   header .brand{font-weight:700;font-size:15px;display:flex;align-items:center;gap:9px;}
-  header .brand .logo{width:18px;height:18px;border-radius:5px;background:linear-gradient(135deg,var(--teal),#2563eb);}
+  header .brand .logo{height:25px;width:auto;display:block;}
   header .spacer{flex:1;}
   .pill{font-size:11.5px;border:1px solid var(--line);border-radius:20px;padding:3px 11px;color:var(--muted);
         display:inline-flex;align-items:center;gap:6px;background:var(--panel);}
@@ -100,7 +100,7 @@
 </head>
 <body>
 <header>
-  <div class="brand"><span class="logo"></span> ERPClaw <span style="color:var(--muted);font-weight:400;font-size:12px">· painel operável</span></div>
+  <div class="brand"><img class="logo" src="/assets/glue-logo.svg" alt="Glue"> <span style="color:var(--muted);font-weight:400;font-size:12px">· painel operável</span></div>
   <div class="spacer"></div>
   <span id="db-pill" class="pill"><span class="dot"></span><span id="db-txt">DB: verificando…</span></span>
   <label style="margin:0;display:flex;align-items:center;gap:7px;color:var(--muted);font-size:12px">Empresa

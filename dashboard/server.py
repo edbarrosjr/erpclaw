@@ -155,6 +155,21 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/api/health":
             self._json(200, {"ok": True, "root": str(ROOT), "db_query": DB_QUERY.exists()})
             return
+        if self.path.startswith("/assets/"):
+            name = self.path[len("/assets/"):].split("?", 1)[0]
+            if re.fullmatch(r"[A-Za-z0-9._-]+", name or ""):
+                fp = ROOT / "assets" / name
+                if fp.is_file():
+                    ctype = {
+                        ".svg": "image/svg+xml", ".png": "image/png",
+                        ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+                        ".webp": "image/webp", ".gif": "image/gif",
+                        ".ico": "image/x-icon",
+                    }.get(fp.suffix.lower(), "application/octet-stream")
+                    self._send(200, fp.read_bytes(), ctype)
+                    return
+            self._json(404, {"error": "asset not found"})
+            return
         self._json(404, {"error": "not found"})
 
     def do_POST(self) -> None:
