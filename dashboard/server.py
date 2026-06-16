@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""ERPClaw — Painel operável (local).
+"""Glue — Painel operável (local).
 
 A zero-dependency, stdlib-only bridge between a static web UI and the same
 `scripts/db_query.py` router the AI assistant drives. The browser cannot shell
@@ -126,7 +126,7 @@ def run_action(action: str, args: dict, confirm: bool) -> dict:
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "ERPClawDash/1.0"
+    server_version = "GlueDash/1.0"
 
     def _send(self, code: int, body: bytes, ctype: str) -> None:
         self.send_response(code)
@@ -197,7 +197,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="ERPClaw local operable dashboard")
+    ap = argparse.ArgumentParser(description="Glue local operable dashboard")
     ap.add_argument("--port", type=int,
                     default=int(os.environ.get("ERPCLAW_DASH_PORT", "8787")))
     ap.add_argument("--host", default=os.environ.get("ERPCLAW_DASH_HOST", "127.0.0.1"))
@@ -208,7 +208,7 @@ def main() -> int:
         return 1
     n = len(discover_actions())
     httpd = ThreadingHTTPServer((opts.host, opts.port), Handler)
-    print(f"ERPClaw dashboard → http://{opts.host}:{opts.port}  "
+    print(f"Glue dashboard → http://{opts.host}:{opts.port}  "
           f"({n} actions, router: {DB_QUERY})")
     print("DB: ~/.openclaw/erpclaw/data.sqlite   (Ctrl+C to stop)")
     try:

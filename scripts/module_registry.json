@@ -436,7 +436,7 @@
       "action_count": 505,
       "category": "core",
       "description": "Complete ERP foundation: accounting, inventory, selling, buying, billing, payments, tax, journals, GL, HR, payroll, reports, and setup. 475 actions across 14 domains.",
-      "display_name": "ERPClaw Core",
+      "display_name": "Glue Core",
       "files_sha256": {
         "CHANGELOG.md": "b8ed53f25c7fcb310d20109b8b5bea96e9a74588e020cadc63c927b285a2ec64",
         "LICENSE.txt": "7bb0c0eb1db8b40884cd154315e459fadacd2bff10190df3516639282608ed0c",
@@ -578,8 +578,8 @@
     "erpclaw-alerts": {
       "action_count": 21,
       "category": "infrastructure",
-      "description": "Alert rules, notifications, escalation policies, and delivery channels for ERPClaw event monitoring. 14 actions.",
-      "display_name": "ERPClaw Alerts",
+      "description": "Alert rules, notifications, escalation policies, and delivery channels for Glue event monitoring. 14 actions.",
+      "display_name": "Glue Alerts",
       "files_sha256": {
         "LICENSE.txt": "7bb0c0eb1db8b40884cd154315e459fadacd2bff10190df3516639282608ed0c",
         "SKILL.md": "44078bcd0bf89090e80075e234b1a415f238d5d1bd1e3bfd85c7ac66bde675ca",
@@ -611,7 +611,7 @@
       "action_count": 13,
       "category": "infrastructure",
       "description": "Multi-level approval workflows, delegation, and audit trails for document routing. 13 actions.",
-      "display_name": "ERPClaw Approvals",
+      "display_name": "Glue Approvals",
       "files_sha256": {
         "LICENSE.txt": "7bb0c0eb1db8b40884cd154315e459fadacd2bff10190df3516639282608ed0c",
         "SKILL.md": "b129ba57a1934431ce202f2f9241478743177193e094c336b333f289f19421ca",
@@ -640,7 +640,7 @@
       "action_count": 38,
       "category": "infrastructure",
       "description": "Regulatory compliance management: frameworks, controls, assessments, findings, remediation, evidence collection, and audit scheduling. 38 actions.",
-      "display_name": "ERPClaw Compliance",
+      "display_name": "Glue Compliance",
       "files_sha256": {
         "LICENSE.txt": "7bb0c0eb1db8b40884cd154315e459fadacd2bff10190df3516639282608ed0c",
         "SKILL.md": "ade4b3fc8ce7d724741914ae38cd637dd09002a182c4017df97661b6b45cf5c6",
@@ -678,7 +678,7 @@
       "action_count": 25,
       "category": "infrastructure",
       "description": "Document management system: folders, file metadata, versions, tags, sharing, and search. 25 actions.",
-      "display_name": "ERPClaw Documents",
+      "display_name": "Glue Documents",
       "files_sha256": {
         "LICENSE.txt": "7bb0c0eb1db8b40884cd154315e459fadacd2bff10190df3516639282608ed0c",
         "SKILL.md": "1a2f1658979dc84eb9c472e99d122ead2b084386304f65ccf9c55ed2e29630f5",
@@ -719,7 +719,7 @@
       "action_count": 13,
       "category": "infrastructure",
       "description": "Electronic signature workflows: signature requests, templates, signing ceremonies, and audit trails. 13 actions.",
-      "display_name": "ERPClaw E-Sign",
+      "display_name": "Glue E-Sign",
       "files_sha256": {
         "LICENSE.txt": "7bb0c0eb1db8b40884cd154315e459fadacd2bff10190df3516639282608ed0c",
         "SKILL.md": "92b40066997507f0e031a2299caad09aafc6ae17ad2e9b6dddb6cac7a0a731f5",
@@ -748,7 +748,7 @@
       "action_count": 15,
       "category": "infrastructure",
       "description": "Fleet and vehicle management: vehicles, drivers, trips, fuel logs, maintenance schedules, and compliance. 15 actions.",
-      "display_name": "ERPClaw Fleet",
+      "display_name": "Glue Fleet",
       "files_sha256": {
         "LICENSE.txt": "7bb0c0eb1db8b40884cd154315e459fadacd2bff10190df3516639282608ed0c",
         "SKILL.md": "85d0b380fa652915e18caffce8aef2ab0d27e72bbdce22b51043bdc5ada12ab2",
@@ -778,7 +778,7 @@
       "action_count": 110,
       "category": "expansion",
       "description": "CRM, analytics, AI engine, and advanced CRM capabilities. Leads, opportunities, campaigns, KPIs, anomaly detection, forecasting, and scoring. 110 actions across 4 domains.",
-      "display_name": "ERPClaw Growth",
+      "display_name": "Glue Growth",
       "files_sha256": {
         "LICENSE.txt": "7bb0c0eb1db8b40884cd154315e459fadacd2bff10190df3516639282608ed0c",
         "SKILL.md": "de8f5c33923000f8cfc961d4a2eb00b87ea7c812a7827eb8180a9958dcf13d75",
@@ -826,7 +826,7 @@
       "action_count": 80,
       "category": "expansion",
       "description": "Integration connectors for booking, delivery, real estate, financial, and productivity platforms. Connector configs, field mappings, sync logs, webhooks. 80 actions across 9 domains.",
-      "display_name": "ERPClaw Integrations",
+      "display_name": "Glue Integrations",
       "files_sha256": {
         ".gitignore": "f3547390db33fbdbbf022157831004f2475b3f43f57fa07c02366dce2c155914",
         "LICENSE.txt": "7bb0c0eb1db8b40884cd154315e459fadacd2bff10190df3516639282608ed0c",
@@ -889,7 +889,7 @@
       "action_count": 66,
       "category": "expansion",
       "description": "Deep native Shopify integration: order sync, payout reconciliation, GL posting, COGS tracking, gift card deferred revenue, App Store OAuth pairing, status mirror, SSE command delivery, cross-platform push daemon, GDPR webhooks",
-      "display_name": "ERPClaw Shopify Integration",
+      "display_name": "Glue Shopify Integration",
       "files_sha256": {
         "SKILL.md": "7525e460d3ec25dbd1cb83ff1276102d8e72f7095389803010930bea48a3ac91",
         "init_db.py": "f5526b712e31e44f267038458bfa8203dd65be4cc50bdfe5d7ebca2e0784c314",
@@ -947,7 +947,7 @@
       "action_count": 67,
       "category": "expansion",
       "description": "Deep native Stripe integration: transaction sync, auto-reconciliation, GL posting, revenue reports",
-      "display_name": "ERPClaw Stripe Integration",
+      "display_name": "Glue Stripe Integration",
       "files_sha256": {
         "SKILL.md": "a1af1662c0c960694035a54e4f744120bfcf49dded56088d7af98715af7f9062",
         "init_db.py": "d3da1fd660dd8b956640691297778fd9e32641f45baa2c754a5414839cada831",
@@ -984,7 +984,7 @@
       "action_count": 20,
       "category": "infrastructure",
       "description": "Loan management: loan types, applications, disbursements, repayment schedules, and GL integration. 25 actions.",
-      "display_name": "ERPClaw Loans",
+      "display_name": "Glue Loans",
       "files_sha256": {
         "LICENSE.txt": "7bb0c0eb1db8b40884cd154315e459fadacd2bff10190df3516639282608ed0c",
         "SKILL.md": "8744b76b0d99374529a01354b5771ed2c4e63a95d2ab5e42d70c0d99ec9295fa",
@@ -1016,7 +1016,7 @@
       "action_count": 34,
       "category": "infrastructure",
       "description": "Supply chain logistics: shipments, carriers, tracking, routes, freight charges, and delivery scheduling. 34 actions.",
-      "display_name": "ERPClaw Logistics",
+      "display_name": "Glue Logistics",
       "files_sha256": {
         "LICENSE.txt": "7bb0c0eb1db8b40884cd154315e459fadacd2bff10190df3516639282608ed0c",
         "SKILL.md": "0154c54541d74407cced7a4f122d3dee6aedce46835db339f04f455438bb6c8c",
@@ -1052,7 +1052,7 @@
       "action_count": 39,
       "category": "infrastructure",
       "description": "Preventive and corrective maintenance management: work orders, schedules, spare parts, equipment registry, and downtime tracking. 39 actions.",
-      "display_name": "ERPClaw Maintenance",
+      "display_name": "Glue Maintenance",
       "files_sha256": {
         "LICENSE.txt": "7bb0c0eb1db8b40884cd154315e459fadacd2bff10190df3516639282608ed0c",
         "SKILL.md": "d9dbbf28399579d29b21b59f3930cdfd1c8a1a81bfd96397c1e4f62cad8b11cf",
@@ -1087,7 +1087,7 @@
       "action_count": 135,
       "category": "expansion",
       "description": "Manufacturing, advanced manufacturing, projects, assets, quality, and support. BOMs, work orders, MRP, routing, tasks, timesheets, depreciation, inspections, SLAs. 126 actions across 6 domains.",
-      "display_name": "ERPClaw Operations",
+      "display_name": "Glue Operations",
       "files_sha256": {
         "LICENSE.txt": "7bb0c0eb1db8b40884cd154315e459fadacd2bff10190df3516639282608ed0c",
         "SKILL.md": "4c7c2ac1ae33b5629f16691821ae32b5ff2edc55ed80943084e20c57ab0c89b3",
@@ -1136,8 +1136,8 @@
     "erpclaw-os-engine": {
       "action_count": 31,
       "category": "expansion",
-      "description": "ERPClaw OS Engine -- the optional self-improvement layer. Module generation from natural language, in-module feature injection, sandboxed execution, deploy pipeline, DGM evolution, gap detection, semantic checks, compliance weather, heartbeat analysis, web dashboard provisioning. Dev-time / power-user tooling.",
-      "display_name": "ERPClaw OS Engine",
+      "description": "Glue OS Engine -- the optional self-improvement layer. Module generation from natural language, in-module feature injection, sandboxed execution, deploy pipeline, DGM evolution, gap detection, semantic checks, compliance weather, heartbeat analysis, web dashboard provisioning. Dev-time / power-user tooling.",
+      "display_name": "Glue OS Engine",
       "files_sha256": {
         "LICENSE.txt": "7bb0c0eb1db8b40884cd154315e459fadacd2bff10190df3516639282608ed0c",
         "README.md": "ac611de1168e9ae76390b4210aa0b4270b2742b1d33ad3360b25206693aee534",
@@ -1193,7 +1193,7 @@
       "action_count": 30,
       "category": "infrastructure",
       "description": "Financial planning and budgeting: budgets, forecasts, variance analysis, scenarios, and multi-year planning. 30 actions.",
-      "display_name": "ERPClaw Planning",
+      "display_name": "Glue Planning",
       "files_sha256": {
         "LICENSE.txt": "7bb0c0eb1db8b40884cd154315e459fadacd2bff10190df3516639282608ed0c",
         "SKILL.md": "f2719e8f5bf4c9b7a6f59b224be086077b7bc158d2f65fd275f169916d9b73ca",
@@ -1224,7 +1224,7 @@
       "action_count": 28,
       "category": "infrastructure",
       "description": "Point of sale: registers, shifts, transactions, cash management, returns, and end-of-day reconciliation. 34 actions.",
-      "display_name": "ERPClaw POS",
+      "display_name": "Glue POS",
       "files_sha256": {
         "LICENSE.txt": "7bb0c0eb1db8b40884cd154315e459fadacd2bff10190df3516639282608ed0c",
         "SKILL.md": "b72875fda09993df32ee7621ea6251ab2d95acfc904e03ba2e7a22f1935b7449",
@@ -1258,7 +1258,7 @@
       "action_count": 30,
       "category": "regional",
       "description": "Canadian regulatory compliance: GST/HST/PST, T4 slips, ROE, CRA reporting, provincial tax rules, and bilingual support. 30 actions.",
-      "display_name": "ERPClaw Region: Canada",
+      "display_name": "Glue Region: Canada",
       "files_sha256": {
         "LICENSE.txt": "7bb0c0eb1db8b40884cd154315e459fadacd2bff10190df3516639282608ed0c",
         "SKILL.md": "f49dd98a6f6d61fd82d9ad646814f9f85b0b22a4d25f71e84c905123055f6e5a",
@@ -1296,7 +1296,7 @@
       "action_count": 26,
       "category": "regional",
       "description": "European Union compliance: VAT/MOSS, Intrastat, SEPA payments, GDPR, e-invoicing, and multi-currency Euro support. 26 actions.",
-      "display_name": "ERPClaw Region: EU",
+      "display_name": "Glue Region: EU",
       "files_sha256": {
         "LICENSE.txt": "7bb0c0eb1db8b40884cd154315e459fadacd2bff10190df3516639282608ed0c",
         "SKILL.md": "733c5403249eee54351616e167158ea2b4f6ce62a79df6724fae7d37cc0c4bc0",
@@ -1332,7 +1332,7 @@
       "action_count": 30,
       "category": "regional",
       "description": "Indian regulatory compliance: GST (CGST/SGST/IGST), TDS/TCS, e-way bills, PF/ESI, and statutory reporting. 30 actions.",
-      "display_name": "ERPClaw Region: India",
+      "display_name": "Glue Region: India",
       "files_sha256": {
         "LICENSE.txt": "7bb0c0eb1db8b40884cd154315e459fadacd2bff10190df3516639282608ed0c",
         "SKILL.md": "889779c5509d77073c5bb0544d7ac067f72886a8e0dba1cb7e58570462a2dab0",
@@ -1370,7 +1370,7 @@
       "action_count": 28,
       "category": "regional",
       "description": "UK regulatory compliance: Making Tax Digital, PAYE/NI, Corporation Tax, Companies House filing, and Brexit customs. 28 actions.",
-      "display_name": "ERPClaw Region: UK",
+      "display_name": "Glue Region: UK",
       "files_sha256": {
         "LICENSE.txt": "7bb0c0eb1db8b40884cd154315e459fadacd2bff10190df3516639282608ed0c",
         "SKILL.md": "9caa6bab56c05dc3ea4d19791220dd0fc8f1daf0688629b40407cd9b09c6d784",
@@ -1408,7 +1408,7 @@
       "action_count": 25,
       "category": "infrastructure",
       "description": "Employee and customer self-service portal: profile management, leave requests, expense submissions, help desk, and knowledge base. 25 actions.",
-      "display_name": "ERPClaw Self-Service",
+      "display_name": "Glue Self-Service",
       "files_sha256": {
         "LICENSE.txt": "7bb0c0eb1db8b40884cd154315e459fadacd2bff10190df3516639282608ed0c",
         "SKILL.md": "558cc0edfeba1f3d830329f8a79e7f8f5b891a8145b96c8daa2bd16c045521a0",
@@ -1440,7 +1440,7 @@
       "action_count": 35,
       "category": "infrastructure",
       "description": "Treasury and cash management: bank accounts, cash positions, cash flow forecasting, investments, and inter-company transfers. 35 actions.",
-      "display_name": "ERPClaw Treasury",
+      "display_name": "Glue Treasury",
       "files_sha256": {
         "LICENSE.txt": "7bb0c0eb1db8b40884cd154315e459fadacd2bff10190df3516639282608ed0c",
         "SKILL.md": "3af4c6a42d9fcb220b6ea02a65470086de7006ae0d5f5b8e027ad9edd427b27c",

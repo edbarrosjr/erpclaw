@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/logo.svg" alt="Glue" width="120" height="120">
+  <img src="assets/glue-mark.svg" alt="Glue" width="120" height="120">
 </p>
 
 <h1 align="center">Glue</h1>
