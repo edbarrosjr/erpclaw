@@ -1,6 +1,6 @@
-# Vendas (Order-to-Cash) — `erpclaw-selling`
+# Vendas (Order-to-Cash) — `glue-selling`
 
-> Spec funcional por ação. Gerada de `scripts/erpclaw-selling/db_query.py`. 14 funcionalidades · 60 ações.
+> Spec funcional por ação. Gerada de `scripts/glue-selling/db_query.py`. 14 funcionalidades · 60 ações.
 
 ## Clientes
 
@@ -400,7 +400,7 @@ Cancela uma fatura: reverte GL + PLE (e SLE se update_stock).
 
 ### `update-invoice-outstanding`
 
-Atualiza o saldo em aberto de uma fatura quando um pagamento é alocado (chamado por erpclaw-payments).
+Atualiza o saldo em aberto de uma fatura quando um pagamento é alocado (chamado por glue-payments).
 
 | | |
 |---|---|
@@ -486,9 +486,9 @@ Encontra faturas vencidas, casa cada cliente ao maior nível aplicável e execut
 |---|---|
 | **Entradas** | --company-id (obrigatório); --run-date (default hoje); --db-path (para subprocess de e-mail). |
 | **Saídas** | run_date, company_id, customers_processed, runs_created, actions (contagem por tipo), emails (sent/skipped), run_ids. |
-| **Regras** | Sem níveis configurados retorna mensagem; busca faturas submitted is_return=0 com outstanding>0 e due_date<hoje; maior nível por cliente vence; idempotente por (cliente, nível, dia) - pula duplicatas; 'hold'/'suspend' alteram credit_status; 'call' apenas registra; 'email' enfileira após o commit via ACTION send-email do erpclaw-alerts; e-mail/template ausente é skip-with-note. |
-| **Efeitos colaterais** | INSERT dunning_run (status='completed'); UPDATE customer.credit_status para hold/suspend; subprocess para erpclaw-alerts send-email (escreve outbox no módulo de alertas); UPDATE dunning_run.generated_email_id/notes; audit não emitido aqui; dois commits (run e pós-e-mail). |
-| **Pré-condições** | Empresa com níveis de dunning configurados; erpclaw-alerts disponível para envios de e-mail. |
+| **Regras** | Sem níveis configurados retorna mensagem; busca faturas submitted is_return=0 com outstanding>0 e due_date<hoje; maior nível por cliente vence; idempotente por (cliente, nível, dia) - pula duplicatas; 'hold'/'suspend' alteram credit_status; 'call' apenas registra; 'email' enfileira após o commit via ACTION send-email do glue-alerts; e-mail/template ausente é skip-with-note. |
+| **Efeitos colaterais** | INSERT dunning_run (status='completed'); UPDATE customer.credit_status para hold/suspend; subprocess para glue-alerts send-email (escreve outbox no módulo de alertas); UPDATE dunning_run.generated_email_id/notes; audit não emitido aqui; dois commits (run e pós-e-mail). |
+| **Pré-condições** | Empresa com níveis de dunning configurados; glue-alerts disponível para envios de e-mail. |
 
 ### `list-dunning-runs`
 

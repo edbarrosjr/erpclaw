@@ -1,6 +1,6 @@
-# Faturamento por uso — `erpclaw-billing`
+# Faturamento por uso — `glue-billing`
 
-> Spec funcional por ação. Gerada de `scripts/erpclaw-billing/db_query.py`. 10 funcionalidades · 22 ações.
+> Spec funcional por ação. Gerada de `scripts/glue-billing/db_query.py`. 10 funcionalidades · 22 ações.
 
 ## Medidores
 

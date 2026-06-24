@@ -1,6 +1,6 @@
-# Lançamentos — `erpclaw-journals`
+# Lançamentos — `glue-journals`
 
-> Spec funcional por ação. Gerada de `scripts/erpclaw-journals/db_query.py`. 11 funcionalidades · 17 ações.
+> Spec funcional por ação. Gerada de `scripts/glue-journals/db_query.py`. 11 funcionalidades · 17 ações.
 
 ## Criação/edição
 

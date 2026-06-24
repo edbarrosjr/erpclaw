@@ -1,6 +1,6 @@
-# Contabilidade (GL) — `erpclaw-gl`
+# Contabilidade (GL) — `glue-gl`
 
-> Spec funcional por ação. Gerada de `scripts/erpclaw-gl/db_query.py`. 13 funcionalidades · 31 ações.
+> Spec funcional por ação. Gerada de `scripts/glue-gl/db_query.py`. 13 funcionalidades · 31 ações.
 
 ## Plano de Contas
 

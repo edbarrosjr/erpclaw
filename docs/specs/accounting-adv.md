@@ -1,6 +1,6 @@
-# Contabilidade Avançada — `erpclaw-accounting-adv`
+# Contabilidade Avançada — `glue-accounting-adv`
 
-> Spec funcional por ação. Gerada de `scripts/erpclaw-accounting-adv/db_query.py`. 16 funcionalidades · 49 ações.
+> Spec funcional por ação. Gerada de `scripts/glue-accounting-adv/db_query.py`. 16 funcionalidades · 49 ações.
 
 ## Contratos de Receita (ASC606)
 

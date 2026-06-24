@@ -11,7 +11,7 @@
 
 ## Parte A — Núcleo do ERP (15 domínios)
 
-### 1. Configuração & Admin — `erpclaw-setup` · ~61 ações
+### 1. Configuração & Admin — `glue-setup` · ~61 ações
 Administração geral: empresas, moedas, RBAC, credenciais, backups, schema.
 - **Gestão de Empresas** — empresas com moeda, país, ano fiscal, contas padrão (`setup-company`, `update-company`, `list-companies`)
 - **Moedas e Câmbio** — taxas manuais ou via API (`add-currency`, `add-exchange-rate`, `fetch-exchange-rates`)
@@ -29,7 +29,7 @@ Administração geral: empresas, moedas, RBAC, credenciais, backups, schema.
 - **Config. Regionais/Avançadas** — formatos regionais, conta de adiantamento (`set-advance-account`)
 - **Auditoria/Status/Chave-Mestra** — log de auditoria, status, import da master-key (`get-audit-log`, `status`)
 
-### 2. Contabilidade — `erpclaw-gl` · ~31 ações
+### 2. Contabilidade — `glue-gl` · ~31 ações
 Razão geral, plano de contas, períodos fiscais, dimensões e orçamentos.
 - **Plano de Contas** — CRUD e montagem por template (`setup-chart-of-accounts`, `add-account`)
 - **Congelamento de Contas** (`freeze-account`, `unfreeze-account`)
@@ -44,7 +44,7 @@ Razão geral, plano de contas, períodos fiscais, dimensões e orçamentos.
 - **Importação** — plano de contas e saldos via CSV (`import-chart-of-accounts`, `import-opening-balances`)
 - **Integridade e Câmbio** — cadeia SHA-256, reavaliação de moeda (`check-gl-integrity`, `revalue-foreign-balances`)
 
-### 3. Lançamentos — `erpclaw-journals` · ~17 ações
+### 3. Lançamentos — `glue-journals` · ~17 ações
 Lançamentos manuais (rascunho→submissão→cancelamento), recorrência, intercompany.
 - **Criação/edição** — partidas balanceadas (`add-journal-entry`, `update-journal-entry`)
 - **Consulta/listagem** (`get-journal-entry`, `list-journal-entries`)
@@ -54,7 +54,7 @@ Lançamentos manuais (rascunho→submissão→cancelamento), recorrência, inter
 - **Intercompany** — lançamentos pareados entre empresas (`create-intercompany-je`)
 - **Modelos recorrentes** — CRUD + processamento idempotente (`add-recurring-template`, `process-recurring`)
 
-### 4. Vendas — `erpclaw-selling` · ~60 ações
+### 4. Vendas — `glue-selling` · ~60 ações
 Order-to-cash: clientes → cotação → pedido → entrega → fatura → cobrança.
 - **Clientes** — CRUD, importação, valores em aberto (`add-customer`, `import-customers`)
 - **Cotações** — ciclo e conversão em pedido (`add-quotation`, `convert-quotation-to-so`)
@@ -70,7 +70,7 @@ Order-to-cash: clientes → cotação → pedido → entrega → fatura → cobr
 - **Faturamento Intercompany** (`create-intercompany-invoice`)
 - **Drop Ship / Romaneio** (`create-drop-ship-order`, `add-packing-slip`)
 
-### 5. Compras — `erpclaw-buying` · ~48 ações
+### 5. Compras — `glue-buying` · ~48 ações
 Procure-to-pay: fornecedores → requisição → RFQ → pedido → recebimento → fatura.
 - **Fornecedores** — CRUD, importação, dados fiscais (`add-supplier`, `import-suppliers`)
 - **Requisições de Material** (`add-material-request`)
@@ -85,7 +85,7 @@ Procure-to-pay: fornecedores → requisição → RFQ → pedido → recebimento
 - **Contas Recorrentes** (`generate-recurring-bills`)
 - **Políticas de Compra** — tolerância GRN, 3-way match, UOM (`update-three-way-match-policy`)
 
-### 6. Estoque — `erpclaw-inventory` · ~45 ações
+### 6. Estoque — `glue-inventory` · ~45 ações
 Itens, depósitos, movimentações, valoração FIFO, lotes/série, preços, reconciliação.
 - **Itens** — CRUD, importação, busca aproximada (`add-item`, `resolve-item`, `import-items`)
 - **Grupos de Itens** (`add-item-group`)
@@ -102,7 +102,7 @@ Itens, depósitos, movimentações, valoração FIFO, lotes/série, preços, rec
 - **Variantes** — cor/tamanho (`generate-item-variants`)
 - **Fornecedores de Item** (`add-item-supplier`)
 
-### 7. Faturamento por uso — `erpclaw-billing` · ~22 ações
+### 7. Faturamento por uso — `glue-billing` · ~22 ações
 Billing medido/usage: medidores, leituras, planos de tarifa, bill runs.
 - **Medidores** (`add-meter`) · **Leituras** (`add-meter-reading`)
 - **Eventos de Uso** — individual/lote idempotente (`add-usage-event`, `add-usage-events-batch`)
@@ -113,7 +113,7 @@ Billing medido/usage: medidores, leituras, planos de tarifa, bill runs.
 - **Ajustes** — crédito/multa/desconto (`add-billing-adjustment`)
 - **Créditos Pré-pagos** (`add-prepaid-credit`, `get-prepaid-balance`)
 
-### 8. Impostos — `erpclaw-tax` · ~18 ações
+### 8. Impostos — `glue-tax` · ~18 ações
 Modelos, regras, cálculo em cascata, retenção e 1099.
 - **Modelos de Impostos** (`add-tax-template`) · **Categorias** (`add-tax-category`)
 - **Regras de Tributação** (`add-tax-rule`) · **Resolução** (`resolve-tax-template`)
@@ -121,7 +121,7 @@ Modelos, regras, cálculo em cascata, retenção e 1099.
 - **Retenção na Fonte** (`add-tax-withholding-category`, `record-withholding-entry`)
 - **Relatórios 1099** (`record-1099-payment`, `generate-1099-data`)
 
-### 9. Pagamentos — `erpclaw-payments` · ~16 ações
+### 9. Pagamentos — `glue-payments` · ~16 ações
 Pagamentos/recebimentos, alocação, razão (PLE) e conciliação.
 - **Cadastro/Listagem** (`add-payment`, `list-payments`)
 - **Ciclo de Vida** — submit (GL+PLE) / cancel (`submit-payment`)
@@ -130,7 +130,7 @@ Pagamentos/recebimentos, alocação, razão (PLE) e conciliação.
 - **Razão de Pagamentos (PLE)** (`create-payment-ledger-entry`, `get-outstanding`)
 - **Conciliação** — FIFO (`reconcile-payments`) · **Conciliação Bancária** (`bank-reconciliation`)
 
-### 10. Relatórios — `erpclaw-reports` · ~22 ações
+### 10. Relatórios — `glue-reports` · ~22 ações
 Relatórios financeiros (somente leitura) sobre o razão.
 - **DRE** (`profit-and-loss`, `comparative-pl`) · **Balanço** (`balance-sheet`) · **Balancete** (`trial-balance`)
 - **Fluxo de Caixa** (`cash-flow`) · **Razão** (`general-ledger`, `gl-summary`)
@@ -140,7 +140,7 @@ Relatórios financeiros (somente leitura) sobre o razão.
 - **Relatórios Dimensionais** (`multi-dim-trial-balance`) · **Resumo de Impostos** (`tax-summary`)
 - **Eliminações Intercompany** (`run-elimination`)
 
-### 11. Recursos Humanos — `erpclaw-hr` · ~39 ações
+### 11. Recursos Humanos — `glue-hr` · ~39 ações
 Funcionários, org, férias, ponto, despesas, turnos, documentos.
 - **Funcionários** (`add-employee`) · **Estrutura Org.** (`add-department`, `add-designation`)
 - **Tipos/Alocação de Férias** (`add-leave-type`, `get-leave-balance`)
@@ -151,7 +151,7 @@ Funcionários, org, férias, ponto, despesas, turnos, documentos.
 - **Turnos** (`assign-shift`) · **Documentos** — alerta de vencimento (`check-expiring-documents`)
 - **Eventos de Carreira** (`record-lifecycle-event`)
 
-### 12. Folha de Pagamento — `erpclaw-payroll` · ~30 ações *(US payroll)*
+### 12. Folha de Pagamento — `glue-payroll` · ~30 ações *(US payroll)*
 Componentes/estruturas salariais, holerites, impostos (FICA/IR/FUTA), penhoras, W-2, ACH.
 - **Componentes/Estruturas/Atribuições Salariais** (`add-salary-component`, `add-salary-structure`, `add-salary-assignment`)
 - **Tabelas de IR** — federal/estadual (`add-income-tax-slab`, `add-state-tax-slab`)
@@ -161,7 +161,7 @@ Componentes/estruturas salariais, holerites, impostos (FICA/IR/FUTA), penhoras, 
 - **Penhoras** (`add-garnishment`) · **Horas Extras** (`calculate-overtime`) · **Retro** (`calculate-retro-pay`)
 - **ACH/NACHA** (`generate-nacha-file`)
 
-### 13. Contabilidade Avançada — `erpclaw-accounting-adv` · ~49 ações
+### 13. Contabilidade Avançada — `glue-accounting-adv` · ~49 ações
 ASC 606 (receita), ASC 842 (leasing), intercompany e consolidação.
 - **Contratos de Receita (ASC 606)** (`add-revenue-contract`, `modify-contract`)
 - **Obrigações de Desempenho** (`satisfy-performance-obligation`) · **Consideração Variável** (`add-variable-consideration`)
@@ -172,12 +172,12 @@ ASC 606 (receita), ASC 842 (leasing), intercompany e consolidação.
 - **Transações Intercompany** (`approve-ic-transaction`, `post-ic-transaction`) · **Preços de Transferência** (`add-transfer-price-rule`)
 - **Grupos/Execução de Consolidação** (`add-consolidation-group`, `run-consolidation`) · **Dashboard de Conformidade** (`standards-compliance-dashboard`)
 
-### 14. Meta / Transversal — `erpclaw-meta` · ~4 ações de entrada
+### 14. Meta / Transversal — `glue-meta` · ~4 ações de entrada
 - **Verificação de Instalação** (`check-installation`) · **Guia de Onboarding por Tiers** (`install-guide`)
 - **Geração de Dados de Demo** — empresa demo ponta-a-ponta (`seed-demo-data`)
 - **Setup Web Dashboard** — stub migrado p/ addon `os-engine` (`setup-web-dashboard`)
 
-### 15. OS / Infra de Runtime — `erpclaw-os` · ~7 ações
+### 15. OS / Infra de Runtime — `glue-os` · ~7 ações
 - **Validação contra a "Constituição"** (`validate-module`) · **Artigos** (`list-articles`)
 - **Registro de Propriedade de Tabelas** (`build-table-registry`)
 - **Migrações** — plano/aplicar/reverter/drift (`schema-plan`, `schema-apply`, `schema-rollback`, `schema-drift`)
@@ -191,22 +191,22 @@ ASC 606 (receita), ASC 842 (leasing), intercompany e consolidação.
 ### Verticais (indústria)
 | Módulo | Ações | Módulo | Ações |
 |--------|------:|--------|------:|
-| healthclaw · Saúde | 231 | foodclaw · Alimentos | 80 |
-| educlaw · Educação | 177 | hospitalityclaw · Hotelaria | 73 |
-| constructclaw · Construção | 160 | automotiveclaw · Automotivo | 70 |
-| propertyclaw · Imóveis | 103 | agricultureclaw · Agro | 67 |
-| legalclaw · Jurídico | 100 | nonprofitclaw · ONGs | 57 |
-| retailclaw · Varejo | 88 | | |
+| health · Saúde | 231 | food · Alimentos | 80 |
+| education · Educação | 177 | hospitality · Hotelaria | 73 |
+| construction · Construção | 160 | automotive · Automotivo | 70 |
+| property · Imóveis | 103 | agriculture · Agro | 67 |
+| legal · Jurídico | 100 | nonprofit · ONGs | 57 |
+| retail · Varejo | 88 | | |
 
 ### Sub-verticais
 | Módulo | Ações | Módulo | Ações |
 |--------|------:|--------|------:|
-| educlaw-finaid | 116 | educlaw-lms | 26 |
-| educlaw-statereport | 99 | propertyclaw-commercial | 31 |
-| educlaw-k12 | 77 | healthclaw-mental | 14 |
-| educlaw-highered | 62 | healthclaw-dental | 12 |
-| educlaw-scheduling | 58 | healthclaw-homehealth | 12 |
-| | | healthclaw-vet | 12 |
+| education-finaid | 116 | education-lms | 26 |
+| education-statereport | 99 | property-commercial | 31 |
+| education-k12 | 77 | health-mental | 14 |
+| education-highered | 62 | health-dental | 12 |
+| education-scheduling | 58 | health-homehealth | 12 |
+| | | health-vet | 12 |
 
 ### Infraestrutura
 | Módulo | Ações | Módulo | Ações |

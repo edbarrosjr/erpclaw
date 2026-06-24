@@ -1,6 +1,6 @@
-# Impostos — `erpclaw-tax`
+# Impostos — `glue-tax`
 
-> Spec funcional por ação. Gerada de `scripts/erpclaw-tax/db_query.py`. 9 funcionalidades · 18 ações.
+> Spec funcional por ação. Gerada de `scripts/glue-tax/db_query.py`. 9 funcionalidades · 18 ações.
 
 ## Modelos
 

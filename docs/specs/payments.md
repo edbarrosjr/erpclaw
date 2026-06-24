@@ -1,6 +1,6 @@
-# Pagamentos — `erpclaw-payments`
+# Pagamentos — `glue-payments`
 
-> Spec funcional por ação. Gerada de `scripts/erpclaw-payments/db_query.py`. 9 funcionalidades · 16 ações.
+> Spec funcional por ação. Gerada de `scripts/glue-payments/db_query.py`. 9 funcionalidades · 16 ações.
 
 ## Cadastro
 

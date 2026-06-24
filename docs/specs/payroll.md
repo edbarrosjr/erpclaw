@@ -1,6 +1,6 @@
-# Folha de Pagamento — `erpclaw-payroll`
+# Folha de Pagamento — `glue-payroll`
 
-> Spec funcional por ação. Gerada de `scripts/erpclaw-payroll/db_query.py`. 13 funcionalidades · 30 ações.
+> Spec funcional por ação. Gerada de `scripts/glue-payroll/db_query.py`. 13 funcionalidades · 30 ações.
 
 ## Componentes
 

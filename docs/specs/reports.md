@@ -1,6 +1,6 @@
-# Relatórios — `erpclaw-reports`
+# Relatórios — `glue-reports`
 
-> Spec funcional por ação. Gerada de `scripts/erpclaw-reports/db_query.py`. 14 funcionalidades · 22 ações.
+> Spec funcional por ação. Gerada de `scripts/glue-reports/db_query.py`. 14 funcionalidades · 22 ações.
 
 ## DRE
 

@@ -1,6 +1,6 @@
-# Estoque — `erpclaw-inventory`
+# Estoque — `glue-inventory`
 
-> Spec funcional por ação. Gerada de `scripts/erpclaw-inventory/db_query.py`. 14 funcionalidades · 44 ações.
+> Spec funcional por ação. Gerada de `scripts/glue-inventory/db_query.py`. 14 funcionalidades · 44 ações.
 
 ## Itens
 

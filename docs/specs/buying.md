@@ -1,6 +1,6 @@
-# Compras — `erpclaw-buying`
+# Compras — `glue-buying`
 
-> Spec funcional por ação. Gerada de `scripts/erpclaw-buying/db_query.py`. 13 funcionalidades · 48 ações.
+> Spec funcional por ação. Gerada de `scripts/glue-buying/db_query.py`. 13 funcionalidades · 48 ações.
 
 ## Fornecedores
 
@@ -412,7 +412,7 @@ Cancela uma fatura submetida revertendo GL, PLE, SLE (se update_stock) e acumula
 
 ### `update-invoice-outstanding`
 
-Cross-skill (chamado por erpclaw-payments) para reduzir o outstanding de uma fatura ao aplicar um pagamento.
+Cross-skill (chamado por glue-payments) para reduzir o outstanding de uma fatura ao aplicar um pagamento.
 
 | | |
 |---|---|

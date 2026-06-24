@@ -1,6 +1,6 @@
-# Recursos Humanos — `erpclaw-hr`
+# Recursos Humanos — `glue-hr`
 
-> Spec funcional por ação. Gerada de `scripts/erpclaw-hr/db_query.py`. 12 funcionalidades · 39 ações.
+> Spec funcional por ação. Gerada de `scripts/glue-hr/db_query.py`. 12 funcionalidades · 39 ações.
 
 ## Funcionários
 

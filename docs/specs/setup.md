@@ -1,6 +1,6 @@
-# Configuração & Admin — `erpclaw-setup`
+# Configuração & Admin — `glue-setup`
 
-> Spec funcional por ação. Gerada de `scripts/erpclaw-setup/db_query.py`. 15 funcionalidades · 61 ações.
+> Spec funcional por ação. Gerada de `scripts/glue-setup/db_query.py`. 15 funcionalidades · 61 ações.
 
 ## Gestão de Empresas
 
@@ -379,7 +379,7 @@ Armazena uma credencial de integração no arquivo criptografado.
 | **Entradas** | --integration (obrigatório); valor via --value OU --from-stdin OU --from-env <VAR> (um obrigatório). |
 | **Saídas** | message, integration, credentials_file (caminho). |
 | **Regras** | integration obrigatório; exige fonte de valor (value/stdin/env); erro se valor vazio ou env var não setada; nunca aceita o valor via --api-key. |
-| **Efeitos colaterais** | Escreve no arquivo de credenciais criptografado (erpclaw_lib.credentials, NÃO em tabela do DB); sem audit_log; sem gl_entry/SLE/PLE. |
+| **Efeitos colaterais** | Escreve no arquivo de credenciais criptografado (glue_lib.credentials, NÃO em tabela do DB); sem audit_log; sem gl_entry/SLE/PLE. |
 | **Pré-condições** | Lib de credenciais disponível; master key disponível para criptografia. |
 
 ### `get-credential`
@@ -440,7 +440,7 @@ Registra a definição de um campo customizado em uma tabela core (M1).
 
 | | |
 |---|---|
-| **Entradas** | --table (obrigatório); --field-name (obrigatório, snake_case); --field-type (obrigatório: text\|int\|float\|date\|select\|link\|json); --label, --required (flag), --default, --options, --skill-name (default 'erpclaw-setup'). |
+| **Entradas** | --table (obrigatório); --field-name (obrigatório, snake_case); --field-type (obrigatório: text\|int\|float\|date\|select\|link\|json); --label, --required (flag), --default, --options, --skill-name (default 'glue-setup'). |
 | **Saídas** | result='registered', custom_field_id, table, field_name, field_type. |
 | **Regras** | table/field-name obrigatórios; field-type validado contra lista; --options para select vira {values:[...]}, para link vira {table:...}, demais tipos é JSON cru; IntegrityError retorna 'já existe'. |
 | **Efeitos colaterais** | INSERT em custom_field (via cf.add_custom_field); audit_log (action 'create', entity 'custom_field'). Sem gl_entry/SLE/PLE. |
@@ -592,7 +592,7 @@ Cria um backup do banco SQLite, opcionalmente criptografado AES-256.
 
 | | |
 |---|---|
-| **Entradas** | --backup-path (default: BACKUP_DIR/erpclaw_backup_<ts>.sqlite\|.enc); --encrypt (flag); --passphrase (obrigatório se --encrypt). |
+| **Entradas** | --backup-path (default: BACKUP_DIR/glue_backup_<ts>.sqlite\|.enc); --encrypt (flag); --passphrase (obrigatório se --encrypt). |
 | **Saídas** | backup_path, size_bytes, encrypted, timestamp; se criptografado: carries_master_key, original_size. |
 | **Regras** | Erro se --encrypt sem --passphrase. Criptografado: faz backup temp, depois encrypt_file com HMAC; se existe master key local, ela é wrapped com a passphrase e embutida no header (permite restore cross-machine). Define mode 600 no arquivo. |
 | **Efeitos colaterais** | Cria arquivo de backup no filesystem (usa src.backup); não escreve em tabelas do DB; sem audit_log; sem gl_entry/SLE/PLE. |
@@ -606,7 +606,7 @@ Lista arquivos de backup com tamanho, data e flag de criptografia.
 |---|---|
 | **Entradas** | Nenhuma. |
 | **Saídas** | backups (array: path, filename, size_bytes, timestamp, encrypted), count, total_size_bytes. |
-| **Regras** | Casa erpclaw_*.sqlite e erpclaw_*.enc; parseia timestamp do nome; ordena reverso (recentes primeiro); retorna vazio se diretório não existe. |
+| **Regras** | Casa glue_*.sqlite e glue_*.enc; parseia timestamp do nome; ordena reverso (recentes primeiro); retorna vazio se diretório não existe. |
 | **Efeitos colaterais** | nenhum (leitura do filesystem). |
 | **Pré-condições** | Nenhuma (diretório de backups pode não existir). |
 
@@ -631,7 +631,7 @@ Restaura o banco a partir de um backup, com backup de segurança e rollback auto
 | **Entradas** | --backup-path (obrigatório); --passphrase (obrigatório se criptografado); --db-path (alvo, default padrão). |
 | **Saídas** | restored_from, safety_backup, size_bytes, schema_versions, integrity, was_encrypted. |
 | **Regras** | Erro se backup-path ausente/inexistente; cripto exige passphrase; valida schema_version no backup; fecha a conexão atual, cria safety backup, copia backup sobre o DB, roda integrity_check; em qualquer falha faz rollback restaurando o safety backup. |
-| **Efeitos colaterais** | Substitui o arquivo do DB no filesystem; cria safety backup (erpclaw_pre_restore_<ts>.sqlite); ajusta permissões; em falha restaura estado anterior. Não escreve em tabelas via SQL; sem audit_log. |
+| **Efeitos colaterais** | Substitui o arquivo do DB no filesystem; cria safety backup (glue_pre_restore_<ts>.sqlite); ajusta permissões; em falha restaura estado anterior. Não escreve em tabelas via SQL; sem audit_log. |
 | **Pré-condições** | Backup válido Glue; passphrase se criptografado. |
 
 ### `cleanup-backups`
@@ -640,7 +640,7 @@ Aplica política de retenção (7 diários, 4 semanais, 12 mensais) removendo o 
 
 | | |
 |---|---|
-| **Entradas** | Nenhuma (opera sobre erpclaw_backup_*.sqlite no BACKUP_DIR). |
+| **Entradas** | Nenhuma (opera sobre glue_backup_*.sqlite no BACKUP_DIR). |
 | **Saídas** | kept, deleted, freed_bytes. |
 | **Regras** | Parseia timestamps do nome; mantém 7 datas diárias mais recentes, depois 4 semanais (mais antigo por semana) e 12 mensais; deleta o restante; tolera erros de remoção individual. |
 | **Efeitos colaterais** | Remove arquivos de backup do filesystem; audit_log (action 'cleanup', entity 'backup'). Sem gl_entry/SLE/PLE. |
@@ -659,7 +659,7 @@ Inicializa (ou re-inicializa com --force) todo o schema do banco Glue.
 | **Entradas** | --db-path (default padrão); --force (flag: dropa e recria do zero). |
 | **Saídas** | message, db_path, tables, indexes, skills_registered, journal_mode (WAL), foreign_keys (ON), reinitialized. |
 | **Regras** | Usa CREATE TABLE IF NOT EXISTS (idempotente); com --force remove o arquivo e recria; symlinka a lib compartilhada; ajusta permissões 600; verifica recontando tabelas/índices. Gerencia sua própria conexão (não usa a conexão padrão do dispatch). |
-| **Efeitos colaterais** | Cria/recria todas as tabelas e índices via init_schema.init_db; com --force remove o arquivo do DB; symlinka ~/.openclaw/erpclaw/lib; chmod nos arquivos do DB. Sem audit_log; sem gl_entry/SLE/PLE. |
+| **Efeitos colaterais** | Cria/recria todas as tabelas e índices via init_schema.init_db; com --force remove o arquivo do DB; symlinka ~/.glue/lib; chmod nos arquivos do DB. Sem audit_log; sem gl_entry/SLE/PLE. |
 | **Pré-condições** | Módulo init_schema disponível; permissão de escrita no caminho do DB. |
 
 ### `migrate`
@@ -671,7 +671,7 @@ Executa migrações pendentes da fundação (migrations/NNN_*.py), registrando-a
 | **Entradas** | --db-path (default padrão); --dry-run (flag: lista pendentes sem aplicar). |
 | **Saídas** | Resultado do runner (ex.: migrações aplicadas/pendentes); em falha, erro com nome da migração e detalhe. |
 | **Regras** | Idempotente e dialect-aware; --dry-run apenas lista; falha de migração retorna erro com suggestion. Gerencia suas próprias conexões via db_path (não usa a conexão do dispatch). |
-| **Efeitos colaterais** | Aplica DDL/DML das migrações e grava em erpclaw_schema_migration (ledger). Com --dry-run: nenhum. Sem audit_log; efeitos dependem das migrações. |
+| **Efeitos colaterais** | Aplica DDL/DML das migrações e grava em glue_schema_migration (ledger). Com --dry-run: nenhum. Sem audit_log; efeitos dependem das migrações. |
 | **Pré-condições** | migration_runner.py e arquivos de migração presentes; DB existente. |
 
 ### `get-schema-version`
@@ -680,7 +680,7 @@ Lê a versão de schema registrada para um módulo.
 
 | | |
 |---|---|
-| **Entradas** | --module (default 'erpclaw-setup'). |
+| **Entradas** | --module (default 'glue-setup'). |
 | **Saídas** | module, version, updated_at. |
 | **Regras** | Erro se não houver versão registrada para o módulo. |
 | **Efeitos colaterais** | nenhum (leitura). |
@@ -722,9 +722,9 @@ Assistente de onboarding por estado (state-machine) que avança um passo por cha
 |---|---|
 | **Entradas** | --answer (resposta do passo atual); --reset (flag: reinicia no passo 1). |
 | **Saídas** | step, completed, prompt, options, field; ao final: company_id, currency, fiscal_month, load_demo, results (steps_completed/steps_failed). |
-| **Regras** | Estado persistido em ~/.openclaw/erpclaw/onboarding_state.json. Passos: 1 nome; 2 moeda (validada contra VALID_CURRENCIES); 3 mês fiscal (1-12); 4 demo (yes/no). Passo 4 executa subprocessos: setup-company, seed-defaults, setup-chart-of-accounts (erpclaw-gl, us_gaap) e, se demo, seed-demo-data (erpclaw meta). Falhas de subpasso vão para steps_failed sem abortar. |
+| **Regras** | Estado persistido em ~/.glue/onboarding_state.json. Passos: 1 nome; 2 moeda (validada contra VALID_CURRENCIES); 3 mês fiscal (1-12); 4 demo (yes/no). Passo 4 executa subprocessos: setup-company, seed-defaults, setup-chart-of-accounts (glue-gl, us_gaap) e, se demo, seed-demo-data (glue meta). Falhas de subpasso vão para steps_failed sem abortar. |
 | **Efeitos colaterais** | Escreve/limpa o arquivo de estado de onboarding (filesystem). Dispara subprocessos que, por sua vez, gravam em company, account, currency/uom/payment_terms e demo data, e seus próprios audit_log. Esta ação em si não escreve diretamente em tabelas. |
-| **Pré-condições** | Banco inicializado; scripts erpclaw-gl/erpclaw para os passos C/D (opcionais). |
+| **Pré-condições** | Banco inicializado; scripts glue-gl/glue para os passos C/D (opcionais). |
 
 ## Config. Regionais/Avançadas
 
@@ -791,6 +791,6 @@ Extrai a chave-mestra de criptografia embutida em um backup e a instala localmen
 | **Entradas** | --backup-path (obrigatório); passphrase via --passphrase OU --passphrase-from-stdin OU --passphrase-from-env <VAR> (uma obrigatória); --force (flag: sobrescreve chave existente). |
 | **Saídas** | message, master_key_path, next (orientação para restore). |
 | **Regras** | backup-path obrigatório e arquivo deve existir; exige passphrase não-vazia; backup deve ser formato ECRYPT02 e carregar wrapped master key (senão erro); passphrase errada falha o unwrap; recusa sobrescrever chave existente sem --force (com aviso de perda de dados). |
-| **Efeitos colaterais** | Escreve o arquivo master.key em ~/.config/erpclaw (MASTER_KEY_PATH); com --force remove a chave existente antes. Não escreve em tabelas do DB; sem audit_log; sem gl_entry/SLE/PLE. |
+| **Efeitos colaterais** | Escreve o arquivo master.key em ~/.config/glue (MASTER_KEY_PATH); com --force remove a chave existente antes. Não escreve em tabelas do DB; sem audit_log; sem gl_entry/SLE/PLE. |
 | **Pré-condições** | Backup ECRYPT02 com chave embutida; passphrase de wrapping correta; ausência de master key (ou --force). |
 
