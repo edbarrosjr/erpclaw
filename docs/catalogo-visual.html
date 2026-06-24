@@ -109,19 +109,19 @@ const data = [
     {name:'payments', value:16}, {name:'os', value:7}, {name:'meta', value:4},
   ]},
   { name:'Verticais', color:C.vert, children:[
-    {name:'healthclaw', children:[
+    {name:'health', children:[
       {name:'health-base', value:231}, {name:'mental', value:14}, {name:'dental', value:12},
       {name:'homehealth', value:12}, {name:'vet', value:12},
     ]},
-    {name:'educlaw', children:[
+    {name:'education', children:[
       {name:'edu-base', value:177}, {name:'finaid', value:116}, {name:'statereport', value:99},
       {name:'k12', value:77}, {name:'highered', value:62}, {name:'scheduling', value:58}, {name:'lms', value:26},
     ]},
-    {name:'constructclaw', value:160},
-    {name:'propertyclaw', children:[ {name:'prop-base', value:103}, {name:'commercial', value:31} ]},
-    {name:'legalclaw', value:100}, {name:'retailclaw', value:88}, {name:'foodclaw', value:80},
-    {name:'hospitalityclaw', value:73}, {name:'automotiveclaw', value:70},
-    {name:'agricultureclaw', value:67}, {name:'nonprofitclaw', value:57},
+    {name:'construction', value:160},
+    {name:'property', children:[ {name:'prop-base', value:103}, {name:'commercial', value:31} ]},
+    {name:'legal', value:100}, {name:'retail', value:88}, {name:'food', value:80},
+    {name:'hospitality', value:73}, {name:'automotive', value:70},
+    {name:'agriculture', value:67}, {name:'nonprofit', value:57},
   ]},
   { name:'Infraestrutura', color:C.infra, children:[
     {name:'maintenance', value:39}, {name:'compliance', value:38}, {name:'treasury', value:35},
@@ -226,7 +226,7 @@ function drawBars(){
 
 function openPanel(mod){
   const S=window.SPECS&&window.SPECS[mod];
-  document.getElementById('panel-head-title').textContent = S? `${S.display} · erpclaw-${mod}` : mod;
+  document.getElementById('panel-head-title').textContent = S? `${S.display} · glue-${mod}` : mod;
   const body=document.getElementById('panel-body');
   if(!S){
     body.innerHTML=`<p class="empty"><b>${esc(mod)}</b> é um módulo de <b>catálogo</b>. O código não está incluído neste fork air-gapped, então não há spec gerada da fonte.<br><br>Reconstruir este módulo é trabalho de “desenvolver features”.</p>`;
