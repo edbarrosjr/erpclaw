@@ -95,6 +95,9 @@
   .dt-act-o{font-size:11.5px;color:var(--muted);line-height:1.45;margin-top:3px;}
   .dt-foot{margin-top:12px;font-size:11px;color:var(--muted);}
   .dt-empty{color:var(--muted);font-size:13px;line-height:1.6;}
+  .hub-spoke{cursor:pointer;}
+  .hub-spoke:hover rect{stroke:var(--teal);}
+  #hub svg{font-family:inherit;}
 </style>
 </head>
 <body>
@@ -106,6 +109,7 @@
   <button id="t-camadas" class="active" onclick="tab('camadas')">▤ Camadas (alicerce)</button>
   <button id="t-streams" onclick="tab('streams')">⇄ Value Streams</button>
   <button id="t-feature" onclick="tab('feature')">⌥ Feature Model</button>
+  <button id="t-razao" onclick="tab('razao')">⊙ Razão (GL)</button>
 </div>
 <main>
   <section id="s-camadas" class="active">
@@ -122,6 +126,11 @@
     <div class="legend"><span><b class="vbadge vb-mandatory">mandatory</b> sempre presente</span><span><b class="vbadge vb-xor">xor</b> escolha exclusiva</span><span><b class="vbadge vb-or">or</b> qualquer combinação</span></div>
     <div id="feature" style="margin-top:12px"></div>
     <div class="constraints" id="constraints"></div>
+  </section>
+  <section id="s-razao">
+    <div class="lead">O General Ledger não é uma camada nem um fluxo — é o <b>ponto de convergência</b>: todo domínio operacional posta no <code>gl_entry</code>, e <b>sempre pelo mesmo portão validado</b> (<code>gl_posting</code> / invariantes — ninguém escreve direto). Cada raio mostra os <code>voucher_type</code> que aquele domínio transforma em lançamento. <b>Clique num domínio</b> para ver seus documentos.</div>
+    <div class="legend" id="hub-legend"></div>
+    <div id="hub" style="margin-top:10px"></div>
   </section>
 </main>
 
@@ -206,7 +215,7 @@ function renderFeature(){
 }
 
 function tab(name){
-  ['camadas','streams','feature'].forEach(n=>{
+  ['camadas','streams','feature','razao'].forEach(n=>{
     document.getElementById('s-'+n).classList.toggle('active',n===name);
     document.getElementById('t-'+n).classList.toggle('active',n===name);
   });
@@ -238,12 +247,68 @@ function openDetail(modulo, acao){
   body.scrollTop = 0;
 }
 function closeDetail(){ document.getElementById('detail').classList.remove('open'); }
+/* ---- lente Razão (GL): hub radial — quem posta no gl_entry ---- */
+const HUB = { spokes: [
+  {dom:"journals",       vouchers:["journal_entry"], ef:["GL"]},
+  {dom:"selling",        vouchers:["sales_invoice","delivery_note","credit_note"], ef:["GL","SLE","PLE","TAX"]},
+  {dom:"buying",         vouchers:["purchase_invoice","purchase_receipt","debit_note","landed_cost_voucher"], ef:["GL","SLE","PLE","TAX"]},
+  {dom:"inventory",      vouchers:["stock_entry","stock_reconciliation","stock_revaluation"], ef:["GL","SLE"]},
+  {dom:"payments",       vouchers:["payment_entry"], ef:["GL","PLE"]},
+  {dom:"payroll",        vouchers:["payroll_entry"], ef:["GL"]},
+  {dom:"hr",             vouchers:["expense_claim"], ef:["GL"]},
+  {dom:"accounting-adv", vouchers:["revenue","lease","depreciation","impairment"], ef:["GL"]},
+  {dom:"reports",        vouchers:["elimination_entry"], ef:["GL"]},
+  {dom:"setup",          vouchers:["opening_balance"], ef:["GL"]},
+  {dom:"gl",             vouchers:["exchange_rate_revaluation","period_closing"], ef:["GL"]},
+]};
+function renderHub(){
+  document.getElementById('hub-legend').innerHTML = 'Efeitos: '+['GL','SLE','PLE','TAX'].map(k=>`<span><b style="background:${FX_COR[k]}">${k}</b></span>`).join('')+' <span class="muted">todos postam GL · SLE=estoque · PLE=razão de pagamentos · TAX=imposto</span>';
+  const W=1000,H=700,cx=500,cy=350,RS=276,RG=152,N=HUB.spokes.length;
+  let s=`<circle cx="${cx}" cy="${cy}" r="${RG}" fill="none" stroke="#0d9488" stroke-width="1.5" stroke-dasharray="5 5" opacity="0.75"/>`;
+  HUB.spokes.forEach((sp,i)=>{
+    const th=-Math.PI/2 + i*2*Math.PI/N, C=Math.cos(th), Si=Math.sin(th);
+    const sx=cx+RS*C, sy=cy+RS*Si;
+    s+=`<line x1="${(cx+(RS-26)*C).toFixed(1)}" y1="${(cy+(RS-26)*Si).toFixed(1)}" x2="${(cx+(RG+11)*C).toFixed(1)}" y2="${(cy+(RG+11)*Si).toFixed(1)}" stroke="#2b3b56" stroke-width="1.5"/>`;
+    const tipx=cx+(RG+1)*C, tipy=cy+(RG+1)*Si, bx=cx+(RG+12)*C, by=cy+(RG+12)*Si, pc=Math.cos(th+Math.PI/2), ps=Math.sin(th+Math.PI/2);
+    s+=`<path d="M ${tipx.toFixed(1)},${tipy.toFixed(1)} L ${(bx+5*pc).toFixed(1)},${(by+5*ps).toFixed(1)} L ${(bx-5*pc).toFixed(1)},${(by-5*ps).toFixed(1)} Z" fill="#3a4d6e"/>`;
+    const w=146,h=50;
+    s+=`<g class="hub-spoke" data-dom="${esc(sp.dom)}"><title>${esc(sp.dom)} → ${esc(sp.vouchers.join(', '))}</title>`;
+    s+=`<rect x="${(sx-w/2).toFixed(1)}" y="${(sy-h/2).toFixed(1)}" width="${w}" height="${h}" rx="9" fill="#0e1729" stroke="#24344f"/>`;
+    s+=`<text x="${sx.toFixed(1)}" y="${(sy-3).toFixed(1)}" text-anchor="middle" font-size="13" font-weight="700" fill="#cfe0f2">${esc(sp.dom)}</text>`;
+    const dw=13, startx=sx-(sp.ef.length-1)*dw/2;
+    sp.ef.forEach((e,k)=>{ s+=`<circle cx="${(startx+k*dw).toFixed(1)}" cy="${(sy+12).toFixed(1)}" r="4.5" fill="${FX_COR[e]||'#888'}"/>`; });
+    s+=`</g>`;
+  });
+  const w=180,h=80;
+  s+=`<rect x="${cx-w/2}" y="${cy-h/2}" width="${w}" height="${h}" rx="13" fill="rgba(13,148,136,0.16)" stroke="#0d9488" stroke-width="2"/>`;
+  s+=`<text x="${cx}" y="${cy-6}" text-anchor="middle" font-size="18" font-weight="800" fill="#7fd6c9">gl_entry</text>`;
+  s+=`<text x="${cx}" y="${cy+15}" text-anchor="middle" font-size="11" fill="#8aa0b8">razão imutável</text>`;
+  s+=`<text x="${cx}" y="${(cy-RG-9)}" text-anchor="middle" font-size="12" font-weight="700" fill="#0d9488">gl_posting · invariantes</text>`;
+  s+=`<text x="${cx}" y="${(cy-RG+9)}" text-anchor="middle" font-size="9.5" fill="#5b7088">débito=crédito · conta válida · período · dimensões</text>`;
+  document.getElementById('hub').innerHTML=`<svg viewBox="0 0 ${W} ${H}" width="100%" style="max-height:80vh;display:block">${s}</svg>`;
+}
+function openHubDetail(dom){
+  const sp=HUB.spokes.find(x=>x.dom===dom); if(!sp) return;
+  document.getElementById('detail-title').innerHTML=`<code>${esc(dom)}</code> → gl_entry`;
+  const fx=sp.ef.map(f=>`<b style="background:${FX_COR[f]||'#3a4658'}">${esc(f)}</b>`).join('');
+  document.getElementById('detail-body').innerHTML=
+    `<div class="dt-meta">${esc(dom)} · posta no razão</div>`+
+    `<div class="fx" style="margin-bottom:12px">${fx}</div>`+
+    `<p class="dt-obj">Documentos deste domínio que viram lançamento no <code>gl_entry</code>, sempre via <code>insert_gl_entries</code> (validação de invariantes):</p>`+
+    `<div class="dt-actlist">${sp.vouchers.map(v=>`<div class="dt-act"><div class="dt-act-h"><code>${esc(v)}</code></div></div>`).join('')}</div>`+
+    `<div class="dt-foot">${sp.vouchers.length} voucher_type(s) · efeitos: ${sp.ef.join(', ')}</div>`;
+  document.getElementById('detail').classList.add('open');
+  document.getElementById('detail-body').scrollTop=0;
+}
 document.getElementById('streams').addEventListener('click', ev=>{
   const st = ev.target.closest('.stage'); if(!st) return;
   openDetail(st.getAttribute('data-modulo'), st.getAttribute('data-acao'));
 });
+document.getElementById('hub').addEventListener('click', ev=>{
+  const g = ev.target.closest('.hub-spoke'); if(g) openHubDetail(g.getAttribute('data-dom'));
+});
 document.addEventListener('keydown', ev=>{ if(ev.key==='Escape') closeDetail(); });
-renderCamadas(); renderStreams(); renderFeature();
+renderCamadas(); renderStreams(); renderFeature(); renderHub();
 </script>
 
 <aside id="detail">
