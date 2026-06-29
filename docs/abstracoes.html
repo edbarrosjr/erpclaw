@@ -128,7 +128,7 @@
     <div class="constraints" id="constraints"></div>
   </section>
   <section id="s-razao">
-    <div class="lead">O General Ledger não é uma camada nem um fluxo — é o <b>ponto de convergência</b>: todo domínio operacional posta no <code>gl_entry</code>, e <b>sempre pelo mesmo portão validado</b> (<code>gl_posting</code> / invariantes — ninguém escreve direto). Cada raio mostra os <code>voucher_type</code> que aquele domínio transforma em lançamento. <b>Clique num domínio</b> para ver seus documentos.</div>
+    <div class="lead">O General Ledger não é uma camada nem um fluxo — é o <b>ponto de convergência</b>: todo domínio operacional posta no <code>gl_entry</code>, e <b>sempre pelo mesmo portão validado</b> (<code>gl_posting</code> / invariantes — ninguém escreve direto). Cada raio mostra os <code>voucher_type</code> que aquele domínio transforma em lançamento. <b>Clique num domínio</b> para ver seus documentos.<br><span class="muted">Não confunda o nome: <code>gl_entry</code> é a <b>tabela</b> (o livro); o raio <code>⚙ gl</code> é o <b>domínio</b> que <b>administra</b> o razão (plano de contas, fechamento) e posta só <b>ajustes</b> (revalorização cambial, fechamento de exercício) — os outros 10 postam documentos de negócio.</span></div>
     <div class="legend" id="hub-legend"></div>
     <div id="hub" style="margin-top:10px"></div>
   </section>
@@ -259,7 +259,7 @@ const HUB = { spokes: [
   {dom:"accounting-adv", vouchers:["revenue","lease","depreciation","impairment"], ef:["GL"]},
   {dom:"reports",        vouchers:["elimination_entry"], ef:["GL"]},
   {dom:"setup",          vouchers:["opening_balance"], ef:["GL"]},
-  {dom:"gl",             vouchers:["exchange_rate_revaluation","period_closing"], ef:["GL"]},
+  {dom:"gl",             vouchers:["exchange_rate_revaluation","period_closing"], ef:["GL"], admin:true},
 ]};
 function renderHub(){
   document.getElementById('hub-legend').innerHTML = 'Efeitos: '+['GL','SLE','PLE','TAX'].map(k=>`<span><b style="background:${FX_COR[k]}">${k}</b></span>`).join('')+' <span class="muted">todos postam GL · SLE=estoque · PLE=razão de pagamentos · TAX=imposto</span>';
@@ -271,10 +271,11 @@ function renderHub(){
     s+=`<line x1="${(cx+(RS-26)*C).toFixed(1)}" y1="${(cy+(RS-26)*Si).toFixed(1)}" x2="${(cx+(RG+11)*C).toFixed(1)}" y2="${(cy+(RG+11)*Si).toFixed(1)}" stroke="#2b3b56" stroke-width="1.5"/>`;
     const tipx=cx+(RG+1)*C, tipy=cy+(RG+1)*Si, bx=cx+(RG+12)*C, by=cy+(RG+12)*Si, pc=Math.cos(th+Math.PI/2), ps=Math.sin(th+Math.PI/2);
     s+=`<path d="M ${tipx.toFixed(1)},${tipy.toFixed(1)} L ${(bx+5*pc).toFixed(1)},${(by+5*ps).toFixed(1)} L ${(bx-5*pc).toFixed(1)},${(by-5*ps).toFixed(1)} Z" fill="#3a4d6e"/>`;
-    const w=146,h=50;
-    s+=`<g class="hub-spoke" data-dom="${esc(sp.dom)}"><title>${esc(sp.dom)} → ${esc(sp.vouchers.join(', '))}</title>`;
-    s+=`<rect x="${(sx-w/2).toFixed(1)}" y="${(sy-h/2).toFixed(1)}" width="${w}" height="${h}" rx="9" fill="#0e1729" stroke="#24344f"/>`;
-    s+=`<text x="${sx.toFixed(1)}" y="${(sy-3).toFixed(1)}" text-anchor="middle" font-size="13" font-weight="700" fill="#cfe0f2">${esc(sp.dom)}</text>`;
+    const w=146,h=50, adm=!!sp.admin;
+    s+=`<g class="hub-spoke" data-dom="${esc(sp.dom)}"><title>${esc(sp.dom)}${adm?' — domínio que ADMINISTRA o razão; posta só ajustes':''} → ${esc(sp.vouchers.join(', '))}</title>`;
+    if(adm) s+=`<text x="${sx.toFixed(1)}" y="${(sy-h/2-6).toFixed(1)}" text-anchor="middle" font-size="9" font-weight="700" fill="#0d9488">administra o razão</text>`;
+    s+=`<rect x="${(sx-w/2).toFixed(1)}" y="${(sy-h/2).toFixed(1)}" width="${w}" height="${h}" rx="9" fill="#0e1729" stroke="${adm?'#0d9488':'#24344f'}" stroke-width="${adm?'1.6':'1'}"/>`;
+    s+=`<text x="${sx.toFixed(1)}" y="${(sy-3).toFixed(1)}" text-anchor="middle" font-size="13" font-weight="700" fill="#cfe0f2">${adm?'⚙ ':''}${esc(sp.dom)}</text>`;
     const dw=13, startx=sx-(sp.ef.length-1)*dw/2;
     sp.ef.forEach((e,k)=>{ s+=`<circle cx="${(startx+k*dw).toFixed(1)}" cy="${(sy+12).toFixed(1)}" r="4.5" fill="${FX_COR[e]||'#888'}"/>`; });
     s+=`</g>`;
@@ -282,7 +283,7 @@ function renderHub(){
   const w=180,h=80;
   s+=`<rect x="${cx-w/2}" y="${cy-h/2}" width="${w}" height="${h}" rx="13" fill="rgba(13,148,136,0.16)" stroke="#0d9488" stroke-width="2"/>`;
   s+=`<text x="${cx}" y="${cy-6}" text-anchor="middle" font-size="18" font-weight="800" fill="#7fd6c9">gl_entry</text>`;
-  s+=`<text x="${cx}" y="${cy+15}" text-anchor="middle" font-size="11" fill="#8aa0b8">razão imutável</text>`;
+  s+=`<text x="${cx}" y="${cy+15}" text-anchor="middle" font-size="11" fill="#8aa0b8">a tabela · razão imutável</text>`;
   s+=`<text x="${cx}" y="${(cy-RG-9)}" text-anchor="middle" font-size="12" font-weight="700" fill="#0d9488">gl_posting · invariantes</text>`;
   s+=`<text x="${cx}" y="${(cy-RG+9)}" text-anchor="middle" font-size="9.5" fill="#5b7088">débito=crédito · conta válida · período · dimensões</text>`;
   document.getElementById('hub').innerHTML=`<svg viewBox="0 0 ${W} ${H}" width="100%" style="max-height:80vh;display:block">${s}</svg>`;
